@@ -42,10 +42,6 @@ vi.mock("../src/lib/arche/jira", async () => {
       return true;
     }
 
-    validateWebhookSecret(secret: string | null) {
-      return secret === "test-secret";
-    }
-
     async fetchIssue(issueKey: string) {
       return {
         ...issue,
@@ -161,7 +157,6 @@ describe("run ownership heartbeat", () => {
     process.env.USER_JIRA_BASE_URL = "https://jira.example.com";
     process.env.USER_JIRA_EMAIL = "agent-dev@example.com";
     process.env.USER_JIRA_API_TOKEN = "jira-token";
-    process.env.USER_JIRA_WEBHOOK_SECRET = "test-secret";
     process.env.USER_GITLAB_BASE_URL = "https://gitlab.example.com";
     process.env.USER_GITLAB_TOKEN = "gitlab-token";
 
@@ -311,7 +306,6 @@ describe("run ownership heartbeat", () => {
 
     const accepted = await runsModule.handleJiraWebhook({
       payload: { issue_key: issue.key },
-      secret: "test-secret",
     });
     expect(accepted.accepted).toBe(true);
 

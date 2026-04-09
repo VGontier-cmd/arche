@@ -1,6 +1,8 @@
-import type { FastifyInstance } from "fastify";
 import { sql } from "drizzle-orm";
+import type { FastifyInstance } from "fastify";
 
+import { ensureArcheReady } from "../../bootstrap";
+import { db } from "../../db/client";
 import {
   jiraWebhookSchema,
   manualRunRequestSchema,
@@ -8,31 +10,29 @@ import {
   repositoryCreateSchema,
   runHumanResponseSchema,
 } from "../contracts";
-import { ensureArcheReady } from "../../bootstrap";
-import { db } from "../../db/client";
 import {
+  approvePlan,
+  approvePublish,
   cancelRun,
   createManualRunForTicket,
   createRepoRule,
   createRepository,
-  approvePlan,
-  approvePublish,
   getRunDetail,
   handleJiraWebhook,
+  listExecutionProfiles,
   listRepoRules,
   listRepositories,
   listRunCommands,
   listRunEvents,
   listRunLogs,
   listRunLogsPage,
-  listExecutionProfiles,
   listRuns,
   rejectPublish,
   respondToRun,
   retryRun,
 } from "../runs";
 import type { PaginationQuery } from "./request-context";
-import { parsePaginationQuery, readHeaderValue } from "./request-context";
+import { parsePaginationQuery } from "./request-context";
 
 export function registerServerRoutes(app: FastifyInstance) {
   app.get("/health", async () => ({ status: "ok" }));
@@ -69,7 +69,10 @@ export function registerServerRoutes(app: FastifyInstance) {
     "/runs/:id/events",
     async (request) => {
       await ensureArcheReady();
-      return listRunEvents(request.params.id, parsePaginationQuery(request.query));
+      return listRunEvents(
+        request.params.id,
+        parsePaginationQuery(request.query),
+      );
     },
   );
 
@@ -77,7 +80,10 @@ export function registerServerRoutes(app: FastifyInstance) {
     "/runs/:id/commands",
     async (request) => {
       await ensureArcheReady();
-      return listRunCommands(request.params.id, parsePaginationQuery(request.query));
+      return listRunCommands(
+        request.params.id,
+        parsePaginationQuery(request.query),
+      );
     },
   );
 
@@ -91,20 +97,29 @@ export function registerServerRoutes(app: FastifyInstance) {
     return cancelRun(request.params.id);
   });
 
-  app.post<{ Params: { id: string } }>("/runs/:id/approve-plan", async (request) => {
-    await ensureArcheReady();
-    return approvePlan(request.params.id);
-  });
+  app.post<{ Params: { id: string } }>(
+    "/runs/:id/approve-plan",
+    async (request) => {
+      await ensureArcheReady();
+      return approvePlan(request.params.id);
+    },
+  );
 
-  app.post<{ Params: { id: string } }>("/runs/:id/approve-publish", async (request) => {
-    await ensureArcheReady();
-    return approvePublish(request.params.id);
-  });
+  app.post<{ Params: { id: string } }>(
+    "/runs/:id/approve-publish",
+    async (request) => {
+      await ensureArcheReady();
+      return approvePublish(request.params.id);
+    },
+  );
 
-  app.post<{ Params: { id: string } }>("/runs/:id/reject-publish", async (request) => {
-    await ensureArcheReady();
-    return rejectPublish(request.params.id);
-  });
+  app.post<{ Params: { id: string } }>(
+    "/runs/:id/reject-publish",
+    async (request) => {
+      await ensureArcheReady();
+      return rejectPublish(request.params.id);
+    },
+  );
 
   app.post<{ Params: { id: string } }>("/runs/:id/respond", async (request) => {
     await ensureArcheReady();
@@ -178,9 +193,6 @@ export function registerServerRoutes(app: FastifyInstance) {
     const payload = jiraWebhookSchema.parse(request.body ?? {});
     const result = await handleJiraWebhook({
       payload: payload as Record<string, unknown>,
-      secret:
-        readHeaderValue(request.headers["x-arche-webhook-secret"]) ??
-        readHeaderValue(request.headers["x-webhook-secret"]),
     });
     reply.status(result.accepted ? 200 : 400);
     return result;

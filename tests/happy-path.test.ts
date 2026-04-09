@@ -56,10 +56,6 @@ vi.mock("../src/lib/arche/jira", async () => {
       return true;
     }
 
-    validateWebhookSecret(secret: string | null) {
-      return secret === "test-secret";
-    }
-
     async fetchIssue(issueKey: string) {
       return {
         ...issue,
@@ -237,7 +233,6 @@ describe("workflow orchestration", () => {
     process.env.USER_JIRA_BASE_URL = "https://jira.example.com";
     process.env.USER_JIRA_EMAIL = "agent-dev@example.com";
     process.env.USER_JIRA_API_TOKEN = "jira-token";
-    process.env.USER_JIRA_WEBHOOK_SECRET = "test-secret";
     process.env.USER_GITLAB_BASE_URL = "https://gitlab.example.com";
     process.env.USER_GITLAB_TOKEN = "gitlab-token";
     process.env.USER_OPENROUTER_API_KEY = "provider-token";
@@ -461,7 +456,6 @@ describe("workflow orchestration", () => {
       payload: {
         issue_key: issue.key,
       },
-      secret: "test-secret",
     });
 
     expect(accepted).toMatchObject({
@@ -749,7 +743,6 @@ describe("workflow orchestration", () => {
       payload: {
         issue_key: issue.key,
       },
-      secret: "test-secret",
     });
 
     await runsModule.claimNextRun("worker-1", 60);
@@ -856,7 +849,6 @@ describe("workflow orchestration", () => {
       payload: {
         issue_key: issue.key,
       },
-      secret: "test-secret",
     });
 
     await runsModule.claimNextRun("worker-1", 60);

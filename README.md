@@ -97,7 +97,6 @@ USER_GIT_AUTHOR_EMAIL=arche-bot@example.invalid
 USER_JIRA_BASE_URL=https://jira.example.com
 USER_JIRA_EMAIL=agent-dev@example.com
 USER_JIRA_API_TOKEN=change-me
-USER_JIRA_WEBHOOK_SECRET=change-me
 USER_GITLAB_BASE_URL=https://gitlab.example.com
 USER_GITLAB_TOKEN=change-me
 ```
@@ -116,7 +115,6 @@ Notes:
 - If you add extra executor profiles, point each profile’s `api_key_env` at the env var that holds that profile’s OpenRouter key (or reuse `USER_OPENROUTER_API_KEY` when one key is enough).
 - **`USER_JIRA_API_TOKEN`** is created from your Atlassian account: `https://id.atlassian.com/manage-profile/security/api-tokens`
 - Atlassian currently sets new API tokens to expire after one year by default, and the token value must be copied when it is created.
-- **`USER_JIRA_WEBHOOK_SECRET`**: shared secret for verifying Jira webhooks; use the same value in Jira and send it as the `x-arche-webhook-secret` header.
 - `runs manual` uses Jira to fetch the ticket. Without Jira configured, that command will fail.
 - `runs manual` enforces the same eligibility policy and active-run guard as the Jira webhook unless you pass an explicit force override.
 - Model traffic goes through **OpenRouter**; set each profile `base_url` to `https://openrouter.ai/api/v1` (the shipped default).
@@ -404,11 +402,10 @@ Example:
 ```bash
 curl -X POST http://127.0.0.1:8787/webhooks/jira \
   -H 'content-type: application/json' \
-  -H 'x-arche-webhook-secret: change-me' \
   -d '{"issue":{"key":"PROJ-123"}}'
 ```
 
-The webhook also accepts `x-webhook-secret`.
+There is no webhook signing or `Referer` check: anyone who can reach this URL can post. Keep the server on `127.0.0.1` for local use, or protect the route at your edge before exposing it publicly.
 
 ### View run logs
 

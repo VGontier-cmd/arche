@@ -84,14 +84,8 @@ export async function createManualRunForTicket(input: {
   });
 }
 
-export async function handleJiraWebhook(input: {
-  payload: Record<string, unknown>;
-  secret: string | null;
-}) {
+export async function handleJiraWebhook(input: { payload: Record<string, unknown> }) {
   const jira = new JiraClient();
-  if (!jira.validateWebhookSecret(input.secret)) {
-    return { accepted: false, reason: "Invalid webhook secret" };
-  }
 
   const issueKey =
     typeof input.payload.issue_key === "string"

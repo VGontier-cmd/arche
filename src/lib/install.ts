@@ -19,12 +19,7 @@ const userOpenRouterKeys = [USER_OPENROUTER_API_KEY_ENV] as const;
 
 const userGitIdentityKeys = ["USER_GIT_AUTHOR_NAME", "USER_GIT_AUTHOR_EMAIL"] as const;
 
-const userJiraKeys = [
-  "USER_JIRA_BASE_URL",
-  "USER_JIRA_EMAIL",
-  "USER_JIRA_API_TOKEN",
-  "USER_JIRA_WEBHOOK_SECRET",
-] as const;
+const userJiraKeys = ["USER_JIRA_BASE_URL", "USER_JIRA_EMAIL", "USER_JIRA_API_TOKEN"] as const;
 
 const userGitlabKeys = ["USER_GITLAB_BASE_URL", "USER_GITLAB_TOKEN"] as const;
 
@@ -57,7 +52,6 @@ export const defaultInstallEnvValues: InstallEnvValues = {
   USER_JIRA_BASE_URL: "",
   USER_JIRA_EMAIL: "",
   USER_JIRA_API_TOKEN: "",
-  USER_JIRA_WEBHOOK_SECRET: "",
   USER_GITLAB_BASE_URL: "",
   USER_GITLAB_TOKEN: "",
 };
@@ -135,7 +129,7 @@ export function renderInstallEnvFile(values: InstallEnvValues, preserved: Record
   lines.push("", "# User — Git identity for automated commits");
   renderKeyBlock(lines, userGitIdentityKeys, values);
 
-  lines.push("", "# User — Jira API and webhooks");
+  lines.push("", "# User — Jira API");
   renderKeyBlock(lines, userJiraKeys, values);
 
   lines.push("", "# User — GitLab (optional)");

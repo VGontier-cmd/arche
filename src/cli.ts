@@ -805,12 +805,7 @@ async function promptInstallEnv(current: InstallEnvValues, hasExistingEnv: boole
   const configureJira = guardPrompt(
     await p.confirm({
       message: "Configure Jira now?",
-      initialValue: hasAnyValue(
-        current.USER_JIRA_BASE_URL,
-        current.USER_JIRA_EMAIL,
-        current.USER_JIRA_API_TOKEN,
-        current.USER_JIRA_WEBHOOK_SECRET,
-      ),
+      initialValue: hasAnyValue(current.USER_JIRA_BASE_URL, current.USER_JIRA_EMAIL, current.USER_JIRA_API_TOKEN),
     }),
   );
 
@@ -850,34 +845,16 @@ async function promptInstallEnv(current: InstallEnvValues, hasExistingEnv: boole
           }),
         );
 
-        p.note(
-          [
-            "This is the shared secret Arche uses to verify incoming Jira webhook requests.",
-            "Use the same value in Jira and send it as the x-arche-webhook-secret header.",
-          ].join("\n"),
-          "Jira webhook secret",
-        );
-
-        const webhookSecret = guardPrompt(
-          await p.password({
-            message: "Jira webhook secret",
-            mask: "*",
-            validate: validateRequired,
-          }),
-        );
-
         return {
           USER_JIRA_BASE_URL: baseUrl,
           USER_JIRA_EMAIL: email,
           USER_JIRA_API_TOKEN: apiToken,
-          USER_JIRA_WEBHOOK_SECRET: webhookSecret,
         };
       })()
     : {
         USER_JIRA_BASE_URL: "",
         USER_JIRA_EMAIL: "",
         USER_JIRA_API_TOKEN: "",
-        USER_JIRA_WEBHOOK_SECRET: "",
       };
 
   const configureGitLab = guardPrompt(

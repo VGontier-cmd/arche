@@ -45,11 +45,6 @@ export class JiraClient {
     return Boolean(env.USER_JIRA_BASE_URL && env.USER_JIRA_EMAIL && env.USER_JIRA_API_TOKEN);
   }
 
-  validateWebhookSecret(secret: string | null) {
-    if (!env.USER_JIRA_WEBHOOK_SECRET) return true;
-    return secret === env.USER_JIRA_WEBHOOK_SECRET;
-  }
-
   private get headers() {
     if (!this.configured) {
       throw new ExternalServiceError("Jira client is not configured");

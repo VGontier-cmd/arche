@@ -38,10 +38,6 @@ vi.mock("../src/lib/arche/jira", async () => {
       return true;
     }
 
-    validateWebhookSecret() {
-      return true;
-    }
-
     async fetchIssue(issueKey: string) {
       return {
         ...currentIssue,
