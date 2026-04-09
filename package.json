@@ -1,0 +1,52 @@
+{
+  "name": "arche",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "dist",
+    ".env.example",
+    "README.md",
+    "orchestrator.yml",
+    "docker-compose.yml",
+    "Dockerfile"
+  ],
+  "bin": {
+    "arche": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsup --config tsup.config.ts",
+    "prepack": "npm run build",
+    "cli": "tsx src/cli.ts",
+    "server": "tsx src/bin/server.ts",
+    "worker": "tsx src/bin/worker.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run lint && npm run typecheck"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.1.0",
+    "better-sqlite3": "^12.8.0",
+    "commander": "^14.0.1",
+    "dotenv": "^16.6.1",
+    "drizzle-orm": "^0.45.2",
+    "fastify": "^5.8.4",
+    "neo-blessed": "^0.2.0",
+    "yaml": "^2.8.1",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.25.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.18.7",
+    "eslint": "^9.25.1",
+    "globals": "^16.0.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.30.1",
+    "vitest": "^4.1.3"
+  }
+}

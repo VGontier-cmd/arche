@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+.DS_Store
+.env
+runtime/
+*.sqlite3
+*.tgz
+.next/
+coverage/
+tsconfig.tsbuildinfo

@@ -1,0 +1,80 @@
+runtime:
+  root_dir: ./runtime
+  repos_dir: ./runtime/repos
+  runs_dir: ./runtime/runs
+  logs_dir: ./runtime/logs
+  db_retention_days: 30
+  artifact_retention_days: 14
+  failed_worktree_retention_days: 3
+worker:
+  poll_interval_seconds: 5
+  lease_ttl_seconds: 900
+  max_agent_steps: 8
+  max_run_seconds: 1200
+policy:
+  assignee: agent-dev
+  required_status: In Progress
+  required_label: agent-ready
+  allowed_issue_types:
+    - Bug
+    - Task
+    - Chore
+  max_changed_files: 20
+  max_changed_lines: 500
+  description_min_length: 20
+sandbox:
+  image: arche-app:local
+  network: bridge
+  shell: /bin/bash
+  read_only_rootfs: true
+  tmpfs_paths:
+    - /tmp
+  cap_drop:
+    - ALL
+  no_new_privileges: true
+  pids_limit: 256
+  memory_limit_mb: 2048
+  cpus: "2"
+  env_allowlist:
+    - ARCHE_DEFAULT_API_KEY
+  user: ""
+defaults:
+  allowed_commands:
+    - pwd
+    - ls
+    - find
+    - cat
+    - grep
+    - git status
+    - git diff
+    - pnpm install
+    - pnpm lint
+    - pnpm test
+    - pnpm typecheck
+    - pnpm build
+  validation_commands:
+    - pnpm lint
+    - pnpm test
+    - pnpm typecheck
+workflow:
+  mode: plan_execute_review
+  max_review_cycles: 3
+  require_plan_approval: true
+  require_publish_approval: true
+executors:
+  defaults:
+    planner: default
+    executor: default
+    reviewer: default
+  profiles:
+    default:
+      driver: openai_compatible_api
+      base_url: https://openrouter.ai/api/v1
+      model: openai/gpt-5.4-mini
+      api_key_env: ARCHE_DEFAULT_API_KEY
+      timeout_seconds: 120
+      max_actions: 8
+      temperature: 0.1
+bootstrap:
+  repositories: []
+  repo_rules: []

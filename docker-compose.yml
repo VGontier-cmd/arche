@@ -1,0 +1,39 @@
+services:
+  server:
+    build:
+      context: .
+      target: server
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL to an absolute SQLite path}
+      ARCHE_CONFIG_PATH: ${ARCHE_CONFIG_PATH:?Set ARCHE_CONFIG_PATH to an absolute host path}
+      ARCHE_RUNTIME_ROOT: ${ARCHE_RUNTIME_ROOT:?Set ARCHE_RUNTIME_ROOT to an absolute host path}
+      ARCHE_SERVER_HOST: 0.0.0.0
+      ARCHE_SERVER_AUTH_TOKEN: ${ARCHE_SERVER_AUTH_TOKEN:?Set ARCHE_SERVER_AUTH_TOKEN for the server API}
+    ports:
+      - "8787:8787"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8787/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    volumes:
+      - ${ARCHE_CONFIG_PATH}:${ARCHE_CONFIG_PATH}:ro
+      - ${ARCHE_RUNTIME_ROOT}:${ARCHE_RUNTIME_ROOT}
+
+  worker:
+    build:
+      context: .
+      target: worker
+    command: node dist/worker/main.js
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL to an absolute SQLite path}
+      ARCHE_CONFIG_PATH: ${ARCHE_CONFIG_PATH:?Set ARCHE_CONFIG_PATH to an absolute host path}
+      ARCHE_RUNTIME_ROOT: ${ARCHE_RUNTIME_ROOT:?Set ARCHE_RUNTIME_ROOT to an absolute host path}
+    volumes:
+      - ${ARCHE_CONFIG_PATH}:${ARCHE_CONFIG_PATH}:ro
+      - ${ARCHE_RUNTIME_ROOT}:${ARCHE_RUNTIME_ROOT}
+      - /var/run/docker.sock:/var/run/docker.sock

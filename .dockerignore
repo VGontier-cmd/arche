@@ -1,0 +1,8 @@
+node_modules
+.next
+coverage
+runtime
+dist
+.git
+.github
+.env
