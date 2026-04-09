@@ -5,7 +5,7 @@ import {
   rejectPublish,
   respondToRun,
   retryRun,
-} from "./runs";
+} from "../runs";
 
 export const DASHBOARD_ACTION_KINDS = [
   "approve_plan",

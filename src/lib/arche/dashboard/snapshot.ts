@@ -1,7 +1,7 @@
 import { asc, desc, eq } from "drizzle-orm";
 
-import { getConfig } from "../config";
-import { db } from "../db/client";
+import { getConfig } from "../../config";
+import { db } from "../../db/client";
 import {
   runCommands,
   runEvents,
@@ -12,7 +12,7 @@ import {
   workers,
   type RunRow,
   type WorkerRow,
-} from "../db/schema";
+} from "../../db/schema";
 import {
   presentRun,
   presentRunCommand,
@@ -20,9 +20,9 @@ import {
   presentRunLog,
   presentRunMessage,
   presentRunTask,
-} from "./runs";
-import type { WorkerActivity, WorkerStatus } from "./workers";
-import { serializeDate } from "./utils";
+} from "../runs";
+import type { WorkerActivity, WorkerStatus } from "../workers";
+import { serializeDate } from "../utils";
 
 const WORKER_STATUS_PRIORITY: Record<WorkerStatus, number> = {
   waiting: 0,

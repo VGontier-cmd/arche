@@ -2,8 +2,8 @@ import {
   buildActionDescriptor,
   getContextualApproveAction,
   type DashboardActionKind,
-} from "./dashboard-actions";
-import type { DashboardSnapshot } from "./dashboard";
+} from "./actions";
+import type { DashboardSnapshot } from "./snapshot";
 
 export const DASHBOARD_FOCUSED_PANES = ["lists", "detail", "timeline"] as const;
 export type DashboardFocusedPane = (typeof DASHBOARD_FOCUSED_PANES)[number];
