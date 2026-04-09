@@ -26,7 +26,7 @@ describe("dashboard read model", () => {
     process.env.ARCHE_CONFIG_PATH = configPath;
     process.env.ARCHE_RUNTIME_ROOT = runtimeRoot;
     process.env.ARCHE_LOG_LEVEL = "error";
-    process.env.ARCHE_DEFAULT_API_KEY = "provider-token";
+    process.env.USER_OPENROUTER_API_KEY = "provider-token";
 
     await writeFile(
       configPath,
@@ -72,7 +72,7 @@ describe("dashboard read model", () => {
         "      driver: openai_compatible_api",
         "      base_url: https://qwen.example.com/v1",
         "      model: qwen-plus",
-        "      api_key_env: ARCHE_DEFAULT_API_KEY",
+        "      api_key_env: USER_OPENROUTER_API_KEY",
         "      timeout_seconds: 60",
         "      max_actions: 8",
         "      temperature: 0.1",
@@ -80,7 +80,7 @@ describe("dashboard read model", () => {
         "      driver: openai_compatible_api",
         "      base_url: https://kimi.example.com/v1",
         "      model: kimi-k2",
-        "      api_key_env: ARCHE_DEFAULT_API_KEY",
+        "      api_key_env: USER_OPENROUTER_API_KEY",
         "      timeout_seconds: 60",
         "      max_actions: 8",
         "      temperature: 0.1",
@@ -88,7 +88,7 @@ describe("dashboard read model", () => {
         "      driver: openai_compatible_api",
         "      base_url: https://api.openai.com/v1",
         "      model: gpt-5.4-mini",
-        "      api_key_env: ARCHE_DEFAULT_API_KEY",
+        "      api_key_env: USER_OPENROUTER_API_KEY",
         "      timeout_seconds: 60",
         "      max_actions: 8",
         "      temperature: 0.1",

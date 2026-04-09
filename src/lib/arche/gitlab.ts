@@ -5,7 +5,7 @@ import type { JiraIssue } from "./types";
 
 export class GitLabClient {
   get configured() {
-    return Boolean(env.ARCHE_GITLAB_BASE_URL && env.ARCHE_GITLAB_TOKEN);
+    return Boolean(env.USER_GITLAB_BASE_URL && env.USER_GITLAB_TOKEN);
   }
 
   async createMergeRequest(repository: RepositoryRow, branchName: string, issue: JiraIssue, summary: string) {
@@ -14,11 +14,11 @@ export class GitLabClient {
     }
     const projectId = repository.gitlabProjectId ?? encodeURIComponent(repository.name);
     const response = await fetch(
-      `${env.ARCHE_GITLAB_BASE_URL!.replace(/\/$/, "")}/api/v4/projects/${projectId}/merge_requests`,
+      `${env.USER_GITLAB_BASE_URL!.replace(/\/$/, "")}/api/v4/projects/${projectId}/merge_requests`,
       {
         method: "POST",
         headers: {
-          "PRIVATE-TOKEN": env.ARCHE_GITLAB_TOKEN!,
+          "PRIVATE-TOKEN": env.USER_GITLAB_TOKEN!,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({

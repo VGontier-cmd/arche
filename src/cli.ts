@@ -16,6 +16,7 @@ import {
   databaseUrlForRuntimeRoot,
   defaultInstallEnvValues,
   envFileHasNonEmptyValues,
+  USER_OPENROUTER_API_KEY_ENV,
   preserveUnmanagedEnvValues,
   readEnvFile,
   resolveArcheProjectEnvPath,
@@ -150,7 +151,7 @@ program
           `Runtime: ${config.runtime.root_dir}`,
           `Logs: ${config.runtime.logs_dir}`,
           `Server API auth configured: ${nextManagedValues.ARCHE_SERVER_AUTH_TOKEN ? "yes" : "no"}`,
-          `Default API key configured: ${nextManagedValues.ARCHE_DEFAULT_API_KEY ? "yes" : "no"}`,
+          `OpenRouter API key configured (${USER_OPENROUTER_API_KEY_ENV}): ${nextManagedValues[USER_OPENROUTER_API_KEY_ENV] ? "yes" : "no"}`,
         ].join("\n"),
         "Runtime",
       );
@@ -749,10 +750,11 @@ async function promptInstallEnv(current: InstallEnvValues, hasExistingEnv: boole
 
   p.note(
     [
-      "Arche V2 uses OpenAI-compatible HTTP profiles from orchestrator.yml.",
-      "ARCHE_DEFAULT_API_KEY is a convenience secret for the default profile; other profiles can reference any env var.",
+      "Arche uses OpenRouter for models (HTTPS OpenAI-compatible API at https://openrouter.ai/api/v1).",
+      `Create a key at https://openrouter.ai/keys and set ${USER_OPENROUTER_API_KEY_ENV} here. orchestrator.yml maps api_key_env to that variable for the default profile.`,
+      "Git/Jira/GitLab entries in this file also use USER_*; Arche runtime paths use ARCHE_* and DATABASE_URL.",
     ].join("\n"),
-    "Execution profiles",
+    "OpenRouter",
   );
 
   p.note(
@@ -781,31 +783,33 @@ async function promptInstallEnv(current: InstallEnvValues, hasExistingEnv: boole
       )
     : current.ARCHE_SERVER_AUTH_TOKEN;
 
-  const updateDefaultApiKey = guardPrompt(
+  const currentOpenRouterKey = current[USER_OPENROUTER_API_KEY_ENV] ?? "";
+
+  const updateOpenRouterApiKey = guardPrompt(
     await p.confirm({
-      message: "Configure or update ARCHE_DEFAULT_API_KEY now?",
-      initialValue: current.ARCHE_DEFAULT_API_KEY.trim().length === 0,
+      message: `Set or update ${USER_OPENROUTER_API_KEY_ENV} now? (from https://openrouter.ai/keys)`,
+      initialValue: currentOpenRouterKey.trim().length === 0,
     }),
   );
 
-  const defaultApiKey = updateDefaultApiKey
+  const openRouterApiKey = updateOpenRouterApiKey
     ? guardPrompt(
         await p.password({
-          message: "Default API key",
+          message: `${USER_OPENROUTER_API_KEY_ENV} — OpenRouter secret, never logged`,
           mask: "*",
           validate: validateRequired,
         }),
       )
-    : current.ARCHE_DEFAULT_API_KEY;
+    : currentOpenRouterKey;
 
   const configureJira = guardPrompt(
     await p.confirm({
       message: "Configure Jira now?",
       initialValue: hasAnyValue(
-        current.ARCHE_JIRA_BASE_URL,
-        current.ARCHE_JIRA_EMAIL,
-        current.ARCHE_JIRA_API_TOKEN,
-        current.ARCHE_JIRA_WEBHOOK_SECRET,
+        current.USER_JIRA_BASE_URL,
+        current.USER_JIRA_EMAIL,
+        current.USER_JIRA_API_TOKEN,
+        current.USER_JIRA_WEBHOOK_SECRET,
       ),
     }),
   );
@@ -815,7 +819,7 @@ async function promptInstallEnv(current: InstallEnvValues, hasExistingEnv: boole
         const baseUrl = guardPrompt(
           await p.text({
             message: "Jira base URL",
-            initialValue: current.ARCHE_JIRA_BASE_URL,
+            initialValue: current.USER_JIRA_BASE_URL,
             placeholder: "https://jira.example.com",
             validate: validateUrl,
           }),
@@ -824,7 +828,7 @@ async function promptInstallEnv(current: InstallEnvValues, hasExistingEnv: boole
         const email = guardPrompt(
           await p.text({
             message: "Jira technical user email",
-            initialValue: current.ARCHE_JIRA_EMAIL,
+            initialValue: current.USER_JIRA_EMAIL,
             placeholder: "agent-dev@example.com",
             validate: validateRequired,
           }),
@@ -863,37 +867,37 @@ async function promptInstallEnv(current: InstallEnvValues, hasExistingEnv: boole
         );
 
         return {
-          ARCHE_JIRA_BASE_URL: baseUrl,
-          ARCHE_JIRA_EMAIL: email,
-          ARCHE_JIRA_API_TOKEN: apiToken,
-          ARCHE_JIRA_WEBHOOK_SECRET: webhookSecret,
+          USER_JIRA_BASE_URL: baseUrl,
+          USER_JIRA_EMAIL: email,
+          USER_JIRA_API_TOKEN: apiToken,
+          USER_JIRA_WEBHOOK_SECRET: webhookSecret,
         };
       })()
     : {
-        ARCHE_JIRA_BASE_URL: "",
-        ARCHE_JIRA_EMAIL: "",
-        ARCHE_JIRA_API_TOKEN: "",
-        ARCHE_JIRA_WEBHOOK_SECRET: "",
+        USER_JIRA_BASE_URL: "",
+        USER_JIRA_EMAIL: "",
+        USER_JIRA_API_TOKEN: "",
+        USER_JIRA_WEBHOOK_SECRET: "",
       };
 
   const configureGitLab = guardPrompt(
     await p.confirm({
       message: "Configure GitLab now?",
-      initialValue: hasAnyValue(current.ARCHE_GITLAB_BASE_URL, current.ARCHE_GITLAB_TOKEN),
+      initialValue: hasAnyValue(current.USER_GITLAB_BASE_URL, current.USER_GITLAB_TOKEN),
     }),
   );
 
   const gitlabValues = configureGitLab
     ? {
-        ARCHE_GITLAB_BASE_URL: guardPrompt(
+        USER_GITLAB_BASE_URL: guardPrompt(
           await p.text({
             message: "GitLab base URL",
-            initialValue: current.ARCHE_GITLAB_BASE_URL,
+            initialValue: current.USER_GITLAB_BASE_URL,
             placeholder: "https://gitlab.example.com",
             validate: validateUrl,
           }),
         ),
-        ARCHE_GITLAB_TOKEN: guardPrompt(
+        USER_GITLAB_TOKEN: guardPrompt(
           await p.password({
             message: "GitLab token",
             mask: "*",
@@ -902,8 +906,8 @@ async function promptInstallEnv(current: InstallEnvValues, hasExistingEnv: boole
         ),
       }
     : {
-        ARCHE_GITLAB_BASE_URL: "",
-        ARCHE_GITLAB_TOKEN: "",
+        USER_GITLAB_BASE_URL: "",
+        USER_GITLAB_TOKEN: "",
       };
 
   return {
@@ -914,7 +918,7 @@ async function promptInstallEnv(current: InstallEnvValues, hasExistingEnv: boole
     ARCHE_SERVER_HOST: current.ARCHE_SERVER_HOST,
     ARCHE_SERVER_AUTH_TOKEN: serverAuthToken,
     ARCHE_LOG_LEVEL: logLevel,
-    ARCHE_DEFAULT_API_KEY: defaultApiKey,
+    [USER_OPENROUTER_API_KEY_ENV]: openRouterApiKey,
     ...jiraValues,
     ...gitlabValues,
   };

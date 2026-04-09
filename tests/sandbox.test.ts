@@ -14,7 +14,7 @@ vi.mock("../src/lib/arche/utils", async () => {
 
 describe("SandboxManager", () => {
   it("passes security flags and allowed environment variables to docker run", async () => {
-    process.env.ARCHE_DEFAULT_API_KEY = "provider-token";
+    process.env.USER_OPENROUTER_API_KEY = "provider-token";
     process.env.UNRELATED_SECRET = "ignore-me";
     runCommandMock.mockResolvedValue({
       command: "docker run",
@@ -62,7 +62,7 @@ describe("SandboxManager", () => {
         pids_limit: 256,
         memory_limit_mb: 2048,
         cpus: "2",
-        env_allowlist: ["ARCHE_DEFAULT_API_KEY"],
+        env_allowlist: ["USER_OPENROUTER_API_KEY"],
         user: "",
       },
       defaults: {
@@ -86,7 +86,7 @@ describe("SandboxManager", () => {
             driver: "openai_compatible_api",
             base_url: "https://llm.example.com/v1",
             model: "test-model",
-            api_key_env: "ARCHE_DEFAULT_API_KEY",
+            api_key_env: "USER_OPENROUTER_API_KEY",
             timeout_seconds: 60,
             max_actions: 8,
             temperature: 0.1,
@@ -119,7 +119,7 @@ describe("SandboxManager", () => {
         "--cpus",
         "2",
         "-e",
-        "ARCHE_DEFAULT_API_KEY=provider-token",
+        "USER_OPENROUTER_API_KEY=provider-token",
       ]),
     );
     expect(runCommandMock.mock.calls[0]?.[1]).not.toContain("UNRELATED_SECRET=ignore-me");

@@ -36,7 +36,7 @@ sandbox:
   memory_limit_mb: 2048
   cpus: "2"
   env_allowlist:
-    - ARCHE_DEFAULT_API_KEY
+    - USER_OPENROUTER_API_KEY
   user: ""
 defaults:
   allowed_commands:
@@ -67,11 +67,12 @@ executors:
     executor: default
     reviewer: default
   profiles:
+    # Default stack: OpenRouter (OpenAI-compatible HTTP API at openrouter.ai).
     default:
       driver: openai_compatible_api
       base_url: https://openrouter.ai/api/v1
       model: openai/gpt-5.4-mini
-      api_key_env: ARCHE_DEFAULT_API_KEY
+      api_key_env: USER_OPENROUTER_API_KEY
       timeout_seconds: 120
       max_actions: 8
       temperature: 0.1

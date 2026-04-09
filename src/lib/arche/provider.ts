@@ -1,3 +1,8 @@
+/**
+ * HTTP client for Arche model calls. The default deployment targets **OpenRouter**
+ * (`https://openrouter.ai/api/v1`, OpenAI-compatible chat/completions). The driver name
+ * stays generic because the wire format matches that API shape.
+ */
 import { readFile } from "node:fs/promises";
 
 import { z, type ZodType } from "zod";

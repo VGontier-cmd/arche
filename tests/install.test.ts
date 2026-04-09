@@ -76,12 +76,18 @@ describe("renderInstallEnvFile", () => {
       EXTRA_SERVICE_TOKEN: "change-me",
     });
 
+    expect(output).toContain("# Internal — runtime and Arche services");
     expect(output).toContain("ARCHE_SERVER_HOST=127.0.0.1");
     expect(output).toContain('ARCHE_SERVER_AUTH_TOKEN=""');
-    expect(output).toContain("ARCHE_GIT_AUTHOR_NAME=arche-bot");
-    expect(output).toContain("ARCHE_GIT_AUTHOR_EMAIL=arche-bot@example.invalid");
-    expect(output).toContain('ARCHE_JIRA_BASE_URL=""');
-    expect(output).toContain('ARCHE_DEFAULT_API_KEY=""');
+    expect(output).toContain("# User — OpenRouter API key");
+    expect(output).toContain('USER_OPENROUTER_API_KEY=""');
+    expect(output).toContain("# User — Git identity");
+    expect(output).toContain("USER_GIT_AUTHOR_NAME=arche-bot");
+    expect(output).toContain("USER_GIT_AUTHOR_EMAIL=arche-bot@example.invalid");
+    expect(output).toContain("# User — Jira");
+    expect(output).toContain('USER_JIRA_BASE_URL=""');
+    expect(output).toContain("# User — GitLab");
+    expect(output).toContain("# User — additional variables");
     expect(output).toContain("EXTRA_SERVICE_TOKEN=change-me");
   });
 });

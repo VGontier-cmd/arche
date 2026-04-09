@@ -24,7 +24,7 @@ At minimum you need:
 - `docker`
 - Jira access if you want to process real tickets
 - GitLab access if you want to publish real merge requests
-- an OpenAI-compatible `chat/completions` LLM provider
+- an [OpenRouter](https://openrouter.ai) account and API key (`USER_OPENROUTER_API_KEY`); Arche calls the OpenRouter OpenAI-compatible `chat/completions` API
 
 ## Installation
 
@@ -44,7 +44,7 @@ The `init` wizard:
 - creates or updates `.arche/environment` (project install layout; shipped defaults live in `install/env.default` inside the package)
 - initializes SQLite automatically in `${ARCHE_RUNTIME_ROOT}/arche.db`
 - creates runtime directories
-- can configure a default API key for OpenAI-compatible execution profiles
+- can configure `USER_OPENROUTER_API_KEY` for the default OpenRouter-backed executor profile
 
 For a non-interactive bootstrap:
 
@@ -90,18 +90,16 @@ ARCHE_CONFIG_PATH=./orchestrator.yml
 ARCHE_RUNTIME_ROOT=./runtime
 ARCHE_SERVER_HOST=127.0.0.1
 ARCHE_SERVER_AUTH_TOKEN=change-me
-ARCHE_GIT_AUTHOR_NAME=arche-bot
-ARCHE_GIT_AUTHOR_EMAIL=arche-bot@example.invalid
 ARCHE_LOG_LEVEL=info
-ARCHE_DEFAULT_API_KEY=change-me
-
-ARCHE_JIRA_BASE_URL=https://jira.example.com
-ARCHE_JIRA_EMAIL=agent-dev@example.com
-ARCHE_JIRA_API_TOKEN=change-me
-ARCHE_JIRA_WEBHOOK_SECRET=change-me
-
-ARCHE_GITLAB_BASE_URL=https://gitlab.example.com
-ARCHE_GITLAB_TOKEN=change-me
+USER_OPENROUTER_API_KEY=change-me
+USER_GIT_AUTHOR_NAME=arche-bot
+USER_GIT_AUTHOR_EMAIL=arche-bot@example.invalid
+USER_JIRA_BASE_URL=https://jira.example.com
+USER_JIRA_EMAIL=agent-dev@example.com
+USER_JIRA_API_TOKEN=change-me
+USER_JIRA_WEBHOOK_SECRET=change-me
+USER_GITLAB_BASE_URL=https://gitlab.example.com
+USER_GITLAB_TOKEN=change-me
 ```
 
 Notes:
@@ -109,18 +107,19 @@ Notes:
 - `DATABASE_URL` normally does not need to be edited manually.
 - `ARCHE_SERVER_HOST` defaults to `127.0.0.1`, so the machine API stays local-only unless you opt in to remote exposure.
 - `ARCHE_SERVER_AUTH_TOKEN` protects the machine API via `Authorization: Bearer <token>` or `x-arche-api-token: <token>`.
-- `ARCHE_GIT_AUTHOR_NAME` and `ARCHE_GIT_AUTHOR_EMAIL` control the Git identity used for automated commits. Safe defaults are provided so publish still works on a clean machine.
+- **`USER_GIT_AUTHOR_NAME`** and **`USER_GIT_AUTHOR_EMAIL`**: Git identity for automated commits (defaults suit a fresh install).
 - `/health`, `/ready`, and `/webhooks/jira` stay reachable without the server auth token.
 - if you bind Arche on a non-loopback host such as `0.0.0.0`, `ARCHE_SERVER_AUTH_TOKEN` is required and startup will fail without it.
 - `ARCHE_LOG_LEVEL` only controls process log verbosity for `server`, `worker`, and `cli`. Keep `info` by default and switch to `debug` temporarily when troubleshooting.
-- `ARCHE_DEFAULT_API_KEY` is the convenience secret used by the default OpenAI-compatible profile from `orchestrator.yml`.
-- Additional profiles can reference any other environment variable through `executors.profiles.<name>.api_key_env`.
-- `ARCHE_JIRA_API_TOKEN` is generated from your Atlassian account here: `https://id.atlassian.com/manage-profile/security/api-tokens`
+- **`USER_*` variables** (OpenRouter key, Git identity, Jira, GitLab): values **you** supply. Arche reserves **`ARCHE_*`** and **`DATABASE_URL`** for its own runtime and paths.
+- **`USER_OPENROUTER_API_KEY`**: OpenRouter API key from [openrouter.ai/keys](https://openrouter.ai/keys). The default `orchestrator.yml` profile sets `api_key_env` to this variable name.
+- If you add extra executor profiles, point each profile’s `api_key_env` at the env var that holds that profile’s OpenRouter key (or reuse `USER_OPENROUTER_API_KEY` when one key is enough).
+- **`USER_JIRA_API_TOKEN`** is created from your Atlassian account: `https://id.atlassian.com/manage-profile/security/api-tokens`
 - Atlassian currently sets new API tokens to expire after one year by default, and the token value must be copied when it is created.
-- `ARCHE_JIRA_WEBHOOK_SECRET` is the shared secret used to verify incoming Jira webhooks. Use the same value in Jira and send it as the `x-arche-webhook-secret` header.
+- **`USER_JIRA_WEBHOOK_SECRET`**: shared secret for verifying Jira webhooks; use the same value in Jira and send it as the `x-arche-webhook-secret` header.
 - `runs manual` uses Jira to fetch the ticket. Without Jira configured, that command will fail.
 - `runs manual` enforces the same eligibility policy and active-run guard as the Jira webhook unless you pass an explicit force override.
-- Any OpenAI-compatible provider can be wired through `executors.profiles`, including OpenAI, OpenRouter, Qwen, Kimi, or a self-hosted compatible gateway.
+- Model traffic goes through **OpenRouter**; set each profile `base_url` to `https://openrouter.ai/api/v1` (the shipped default).
 
 ### `orchestrator.yml`
 
@@ -188,31 +187,31 @@ workflow:
 
 executors:
   defaults:
-    planner: qwen
-    executor: kimi
-    reviewer: openai
+    planner: planner
+    executor: executor
+    reviewer: reviewer
   profiles:
-    qwen:
+    planner:
       driver: openai_compatible_api
-      base_url: https://dashscope-intl.aliyuncs.com/compatible-mode/v1
-      model: qwen-plus
-      api_key_env: QWEN_API_KEY
+      base_url: https://openrouter.ai/api/v1
+      model: openai/gpt-5.4
+      api_key_env: USER_OPENROUTER_API_KEY
       timeout_seconds: 120
       max_actions: 8
       temperature: 0.1
-    kimi:
+    executor:
       driver: openai_compatible_api
-      base_url: https://api.moonshot.ai/v1
-      model: kimi-k2-0905-preview
-      api_key_env: KIMI_API_KEY
+      base_url: https://openrouter.ai/api/v1
+      model: openai/gpt-5.4-mini
+      api_key_env: USER_OPENROUTER_API_KEY
       timeout_seconds: 120
       max_actions: 8
       temperature: 0.1
-    openai:
+    reviewer:
       driver: openai_compatible_api
-      base_url: https://api.openai.com/v1
-      model: gpt-5.4-mini
-      api_key_env: OPENAI_API_KEY
+      base_url: https://openrouter.ai/api/v1
+      model: openai/gpt-5.4-mini
+      api_key_env: USER_OPENROUTER_API_KEY
       timeout_seconds: 120
       max_actions: 8
       temperature: 0.1

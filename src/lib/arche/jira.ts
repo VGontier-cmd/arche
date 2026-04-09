@@ -42,12 +42,12 @@ export function normalizeIssue(rawIssue: unknown): JiraIssue {
 
 export class JiraClient {
   get configured() {
-    return Boolean(env.ARCHE_JIRA_BASE_URL && env.ARCHE_JIRA_EMAIL && env.ARCHE_JIRA_API_TOKEN);
+    return Boolean(env.USER_JIRA_BASE_URL && env.USER_JIRA_EMAIL && env.USER_JIRA_API_TOKEN);
   }
 
   validateWebhookSecret(secret: string | null) {
-    if (!env.ARCHE_JIRA_WEBHOOK_SECRET) return true;
-    return secret === env.ARCHE_JIRA_WEBHOOK_SECRET;
+    if (!env.USER_JIRA_WEBHOOK_SECRET) return true;
+    return secret === env.USER_JIRA_WEBHOOK_SECRET;
   }
 
   private get headers() {
@@ -55,7 +55,7 @@ export class JiraClient {
       throw new ExternalServiceError("Jira client is not configured");
     }
     const token = Buffer.from(
-      `${env.ARCHE_JIRA_EMAIL}:${env.ARCHE_JIRA_API_TOKEN}`,
+      `${env.USER_JIRA_EMAIL}:${env.USER_JIRA_API_TOKEN}`,
       "utf8",
     ).toString("base64");
     return {
@@ -71,7 +71,7 @@ export class JiraClient {
     }
 
     const response = await fetch(
-      `${env.ARCHE_JIRA_BASE_URL!.replace(/\/$/, "")}/rest/api/3/issue/${issueKey}`,
+      `${env.USER_JIRA_BASE_URL!.replace(/\/$/, "")}/rest/api/3/issue/${issueKey}`,
       {
         headers: this.headers,
       },
@@ -90,7 +90,7 @@ export class JiraClient {
   async commentIssue(issueKey: string, comment: string) {
     if (!this.configured) return;
     const response = await fetch(
-      `${env.ARCHE_JIRA_BASE_URL!.replace(/\/$/, "")}/rest/api/3/issue/${issueKey}/comment`,
+      `${env.USER_JIRA_BASE_URL!.replace(/\/$/, "")}/rest/api/3/issue/${issueKey}/comment`,
       {
         method: "POST",
         headers: this.headers,

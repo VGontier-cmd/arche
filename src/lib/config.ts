@@ -41,7 +41,7 @@ const defaultExecutorProfile = {
   driver: "openai_compatible_api",
   base_url: "https://openrouter.ai/api/v1",
   model: "openai/gpt-5.4-mini",
-  api_key_env: "ARCHE_DEFAULT_API_KEY",
+  api_key_env: "USER_OPENROUTER_API_KEY",
   timeout_seconds: 60,
   max_actions: 8,
   temperature: 0.1,

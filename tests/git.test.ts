@@ -27,15 +27,15 @@ function commandResult(returncode = 0, stdout = "", stderr = "") {
 describe("GitManager.commitAndPush", () => {
   beforeEach(() => {
     runCommandMock.mockReset();
-    delete process.env.ARCHE_GIT_AUTHOR_NAME;
-    delete process.env.ARCHE_GIT_AUTHOR_EMAIL;
+    delete process.env.USER_GIT_AUTHOR_NAME;
+    delete process.env.USER_GIT_AUTHOR_EMAIL;
     delete (globalThis as { __archeEnv?: unknown }).__archeEnv;
     vi.resetModules();
   });
 
   afterEach(() => {
-    delete process.env.ARCHE_GIT_AUTHOR_NAME;
-    delete process.env.ARCHE_GIT_AUTHOR_EMAIL;
+    delete process.env.USER_GIT_AUTHOR_NAME;
+    delete process.env.USER_GIT_AUTHOR_EMAIL;
     delete (globalThis as { __archeEnv?: unknown }).__archeEnv;
   });
 
@@ -102,8 +102,8 @@ describe("GitManager.commitAndPush", () => {
   });
 
   it("uses the configured git author identity when provided", async () => {
-    process.env.ARCHE_GIT_AUTHOR_NAME = "release-bot";
-    process.env.ARCHE_GIT_AUTHOR_EMAIL = "release-bot@example.com";
+    process.env.USER_GIT_AUTHOR_NAME = "release-bot";
+    process.env.USER_GIT_AUTHOR_EMAIL = "release-bot@example.com";
     runCommandMock
       .mockResolvedValueOnce(commandResult())
       .mockResolvedValueOnce(commandResult())

@@ -44,7 +44,7 @@ describe("getConfig", () => {
     expect(config.executors.profiles.default).toMatchObject({
       driver: "openai_compatible_api",
       model: "openai/gpt-5.4-mini",
-      api_key_env: "ARCHE_DEFAULT_API_KEY",
+      api_key_env: "USER_OPENROUTER_API_KEY",
     });
     expect(config.runtime.root_dir).toBe(runtimeRoot);
   });
@@ -77,13 +77,13 @@ describe("getConfig", () => {
         "      driver: openai_compatible_api",
         "      base_url: https://llm.example.com/v1",
         "      model: test-model",
-        "      api_key_env: ARCHE_DEFAULT_API_KEY",
+        "      api_key_env: USER_OPENROUTER_API_KEY",
         "",
       ].join("\n")),
     ).rejects.toThrow(/Unknown executor profile: missing/);
   });
 
-  it("parses distinct per-role profiles", async () => {
+  it("parses distinct per-role OpenRouter profiles", async () => {
     const config = await loadConfig([
       "runtime: {}",
       "worker: {}",
@@ -92,36 +92,36 @@ describe("getConfig", () => {
       "defaults: {}",
       "executors:",
       "  defaults:",
-      "    planner: qwen",
-      "    executor: kimi",
-      "    reviewer: openai",
+      "    planner: planner",
+      "    executor: executor",
+      "    reviewer: reviewer",
       "  profiles:",
-      "    qwen:",
+      "    planner:",
       "      driver: openai_compatible_api",
-      "      base_url: https://qwen.example.com/v1",
-      "      model: qwen-plus",
-      "      api_key_env: QWEN_API_KEY",
-      "    kimi:",
+      "      base_url: https://openrouter.ai/api/v1",
+      "      model: openai/gpt-5.4",
+      "      api_key_env: USER_OPENROUTER_API_KEY",
+      "    executor:",
       "      driver: openai_compatible_api",
-      "      base_url: https://kimi.example.com/v1",
-      "      model: kimi-k2",
-      "      api_key_env: KIMI_API_KEY",
-      "    openai:",
+      "      base_url: https://openrouter.ai/api/v1",
+      "      model: openai/gpt-5.4-mini",
+      "      api_key_env: USER_OPENROUTER_API_KEY",
+      "    reviewer:",
       "      driver: openai_compatible_api",
-      "      base_url: https://api.openai.com/v1",
-      "      model: gpt-5.4-mini",
-      "      api_key_env: OPENAI_API_KEY",
+      "      base_url: https://openrouter.ai/api/v1",
+      "      model: anthropic/claude-3.5-sonnet",
+      "      api_key_env: USER_OPENROUTER_API_KEY",
       "bootstrap: {}",
       "",
     ].join("\n"));
 
     expect(config.executors.defaults).toEqual({
-      planner: "qwen",
-      executor: "kimi",
-      reviewer: "openai",
+      planner: "planner",
+      executor: "executor",
+      reviewer: "reviewer",
     });
-    expect(config.executors.profiles.qwen.base_url).toBe("https://qwen.example.com/v1");
-    expect(config.executors.profiles.kimi.model).toBe("kimi-k2");
-    expect(config.executors.profiles.openai.api_key_env).toBe("OPENAI_API_KEY");
+    expect(config.executors.profiles.planner.model).toBe("openai/gpt-5.4");
+    expect(config.executors.profiles.executor.model).toBe("openai/gpt-5.4-mini");
+    expect(config.executors.profiles.reviewer.api_key_env).toBe("USER_OPENROUTER_API_KEY");
   });
 });

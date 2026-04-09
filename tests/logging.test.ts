@@ -7,18 +7,18 @@ import {
 } from "../src/lib/arche/logging";
 
 describe("logging", () => {
-  const originalApiKey = process.env.ARCHE_DEFAULT_API_KEY;
+  const originalApiKey = process.env.USER_OPENROUTER_API_KEY;
   const originalLogLevel = process.env.ARCHE_LOG_LEVEL;
   const originalNoColor = process.env.NO_COLOR;
 
   beforeEach(() => {
-    process.env.ARCHE_DEFAULT_API_KEY = "super-secret-token";
+    process.env.USER_OPENROUTER_API_KEY = "super-secret-token";
     process.env.ARCHE_LOG_LEVEL = "debug";
     delete process.env.NO_COLOR;
   });
 
   afterEach(() => {
-    process.env.ARCHE_DEFAULT_API_KEY = originalApiKey;
+    process.env.USER_OPENROUTER_API_KEY = originalApiKey;
     process.env.ARCHE_LOG_LEVEL = originalLogLevel;
     process.env.NO_COLOR = originalNoColor;
   });

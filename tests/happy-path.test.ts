@@ -234,13 +234,13 @@ describe("workflow orchestration", () => {
     process.env.ARCHE_CONFIG_PATH = configPath;
     process.env.ARCHE_RUNTIME_ROOT = runtimeRoot;
     process.env.ARCHE_SERVER_AUTH_TOKEN = "server-token";
-    process.env.ARCHE_JIRA_BASE_URL = "https://jira.example.com";
-    process.env.ARCHE_JIRA_EMAIL = "agent-dev@example.com";
-    process.env.ARCHE_JIRA_API_TOKEN = "jira-token";
-    process.env.ARCHE_JIRA_WEBHOOK_SECRET = "test-secret";
-    process.env.ARCHE_GITLAB_BASE_URL = "https://gitlab.example.com";
-    process.env.ARCHE_GITLAB_TOKEN = "gitlab-token";
-    process.env.ARCHE_DEFAULT_API_KEY = "provider-token";
+    process.env.USER_JIRA_BASE_URL = "https://jira.example.com";
+    process.env.USER_JIRA_EMAIL = "agent-dev@example.com";
+    process.env.USER_JIRA_API_TOKEN = "jira-token";
+    process.env.USER_JIRA_WEBHOOK_SECRET = "test-secret";
+    process.env.USER_GITLAB_BASE_URL = "https://gitlab.example.com";
+    process.env.USER_GITLAB_TOKEN = "gitlab-token";
+    process.env.USER_OPENROUTER_API_KEY = "provider-token";
 
     await writeFile(
       configPath,
@@ -270,7 +270,7 @@ describe("workflow orchestration", () => {
         "  network: bridge",
         "  shell: /bin/bash",
         "  env_allowlist:",
-        "    - ARCHE_DEFAULT_API_KEY",
+        "    - USER_OPENROUTER_API_KEY",
         "defaults:",
         "  allowed_commands: []",
         "  validation_commands:",
@@ -290,7 +290,7 @@ describe("workflow orchestration", () => {
         "      driver: openai_compatible_api",
         "      base_url: https://llm.example.com/v1",
         "      model: test-planner-model",
-        "      api_key_env: ARCHE_DEFAULT_API_KEY",
+        "      api_key_env: USER_OPENROUTER_API_KEY",
         "      timeout_seconds: 60",
         "      max_actions: 4",
         "      temperature: 0.1",
@@ -298,7 +298,7 @@ describe("workflow orchestration", () => {
         "      driver: openai_compatible_api",
         "      base_url: https://llm.example.com/v1",
         "      model: test-executor-model",
-        "      api_key_env: ARCHE_DEFAULT_API_KEY",
+        "      api_key_env: USER_OPENROUTER_API_KEY",
         "      timeout_seconds: 60",
         "      max_actions: 4",
         "      temperature: 0.1",
@@ -306,7 +306,7 @@ describe("workflow orchestration", () => {
         "      driver: openai_compatible_api",
         "      base_url: https://llm.example.com/v1",
         "      model: test-reviewer-model",
-        "      api_key_env: ARCHE_DEFAULT_API_KEY",
+        "      api_key_env: USER_OPENROUTER_API_KEY",
         "      timeout_seconds: 60",
         "      max_actions: 4",
         "      temperature: 0.1",

@@ -3,23 +3,39 @@ import { resolve } from "node:path";
 
 import { parse as parseDotEnv } from "dotenv";
 
-export const managedEnvKeys = [
+/** OpenRouter API key (https://openrouter.ai/keys); referenced by `api_key_env` on the default executor profile. */
+export const USER_OPENROUTER_API_KEY_ENV = "USER_OPENROUTER_API_KEY" as const;
+
+const archeInternalManagedKeys = [
   "DATABASE_URL",
   "ARCHE_CONFIG_PATH",
   "ARCHE_RUNTIME_ROOT",
   "ARCHE_SERVER_HOST",
   "ARCHE_SERVER_AUTH_TOKEN",
-  "ARCHE_GIT_AUTHOR_NAME",
-  "ARCHE_GIT_AUTHOR_EMAIL",
   "ARCHE_LOG_LEVEL",
-  "ARCHE_DEFAULT_API_KEY",
-  "ARCHE_JIRA_BASE_URL",
-  "ARCHE_JIRA_EMAIL",
-  "ARCHE_JIRA_API_TOKEN",
-  "ARCHE_JIRA_WEBHOOK_SECRET",
-  "ARCHE_GITLAB_BASE_URL",
-  "ARCHE_GITLAB_TOKEN",
 ] as const;
+
+const userOpenRouterKeys = [USER_OPENROUTER_API_KEY_ENV] as const;
+
+const userGitIdentityKeys = ["USER_GIT_AUTHOR_NAME", "USER_GIT_AUTHOR_EMAIL"] as const;
+
+const userJiraKeys = [
+  "USER_JIRA_BASE_URL",
+  "USER_JIRA_EMAIL",
+  "USER_JIRA_API_TOKEN",
+  "USER_JIRA_WEBHOOK_SECRET",
+] as const;
+
+const userGitlabKeys = ["USER_GITLAB_BASE_URL", "USER_GITLAB_TOKEN"] as const;
+
+const userManagedKeys = [
+  ...userOpenRouterKeys,
+  ...userGitIdentityKeys,
+  ...userJiraKeys,
+  ...userGitlabKeys,
+] as const;
+
+export const managedEnvKeys = [...archeInternalManagedKeys, ...userManagedKeys] as const;
 
 export type ManagedEnvKey = (typeof managedEnvKeys)[number];
 export type InstallEnvValues = Record<ManagedEnvKey, string>;
@@ -34,16 +50,16 @@ export const defaultInstallEnvValues: InstallEnvValues = {
   ARCHE_RUNTIME_ROOT: "./runtime",
   ARCHE_SERVER_HOST: "127.0.0.1",
   ARCHE_SERVER_AUTH_TOKEN: "",
-  ARCHE_GIT_AUTHOR_NAME: "arche-bot",
-  ARCHE_GIT_AUTHOR_EMAIL: "arche-bot@example.invalid",
   ARCHE_LOG_LEVEL: "info",
-  ARCHE_DEFAULT_API_KEY: "",
-  ARCHE_JIRA_BASE_URL: "",
-  ARCHE_JIRA_EMAIL: "",
-  ARCHE_JIRA_API_TOKEN: "",
-  ARCHE_JIRA_WEBHOOK_SECRET: "",
-  ARCHE_GITLAB_BASE_URL: "",
-  ARCHE_GITLAB_TOKEN: "",
+  [USER_OPENROUTER_API_KEY_ENV]: "",
+  USER_GIT_AUTHOR_NAME: "arche-bot",
+  USER_GIT_AUTHOR_EMAIL: "arche-bot@example.invalid",
+  USER_JIRA_BASE_URL: "",
+  USER_JIRA_EMAIL: "",
+  USER_JIRA_API_TOKEN: "",
+  USER_JIRA_WEBHOOK_SECRET: "",
+  USER_GITLAB_BASE_URL: "",
+  USER_GITLAB_TOKEN: "",
 };
 
 export async function readEnvFile(path: string) {
@@ -101,16 +117,33 @@ export async function writeInstallEnvFile(path: string, values: InstallEnvValues
   await writeFile(path, content, "utf8");
 }
 
-export function renderInstallEnvFile(values: InstallEnvValues, preserved: Record<string, string> = {}) {
-  const lines = ["# Arche CLI configuration"];
-
-  for (const key of managedEnvKeys) {
-    lines.push(`${key}=${formatEnvValue(values[key])}`);
+function renderKeyBlock(lines: string[], keys: readonly string[], values: InstallEnvValues) {
+  for (const key of keys) {
+    lines.push(`${key}=${formatEnvValue(values[key as ManagedEnvKey])}`);
   }
+}
+
+export function renderInstallEnvFile(values: InstallEnvValues, preserved: Record<string, string> = {}) {
+  const lines: string[] = ["# Arche environment"];
+
+  lines.push("", "# Internal — runtime and Arche services (DATABASE_URL + ARCHE_*)");
+  renderKeyBlock(lines, archeInternalManagedKeys, values);
+
+  lines.push("", "# User — OpenRouter API key (https://openrouter.ai — set api_key_env on executors.profiles)");
+  renderKeyBlock(lines, userOpenRouterKeys, values);
+
+  lines.push("", "# User — Git identity for automated commits");
+  renderKeyBlock(lines, userGitIdentityKeys, values);
+
+  lines.push("", "# User — Jira API and webhooks");
+  renderKeyBlock(lines, userJiraKeys, values);
+
+  lines.push("", "# User — GitLab (optional)");
+  renderKeyBlock(lines, userGitlabKeys, values);
 
   const preservedEntries = Object.entries(preserved);
   if (preservedEntries.length > 0) {
-    lines.push("", "# Additional secrets");
+    lines.push("", "# User — additional variables (prefer USER_* prefix)");
     for (const [key, value] of preservedEntries) {
       lines.push(`${key}=${formatEnvValue(value)}`);
     }

@@ -58,8 +58,8 @@ export class GitManager {
 
   private async configureCommitIdentity(worktreePath: string) {
     const commands = [
-      ["-C", worktreePath, "config", "user.name", env.ARCHE_GIT_AUTHOR_NAME],
-      ["-C", worktreePath, "config", "user.email", env.ARCHE_GIT_AUTHOR_EMAIL],
+      ["-C", worktreePath, "config", "user.name", env.USER_GIT_AUTHOR_NAME],
+      ["-C", worktreePath, "config", "user.email", env.USER_GIT_AUTHOR_EMAIL],
     ];
 
     for (const args of commands) {

@@ -18,7 +18,7 @@ describe("run retention and command history", () => {
     process.env.ARCHE_CONFIG_PATH = configPath;
     process.env.ARCHE_RUNTIME_ROOT = runtimeRoot;
     process.env.ARCHE_LOG_LEVEL = "error";
-    process.env.ARCHE_DEFAULT_API_KEY = "provider-token";
+    process.env.USER_OPENROUTER_API_KEY = "provider-token";
 
     await writeFile(
       configPath,
@@ -67,7 +67,7 @@ describe("run retention and command history", () => {
         "      driver: openai_compatible_api",
         "      base_url: https://llm.example.com/v1",
         "      model: test-model",
-        "      api_key_env: ARCHE_DEFAULT_API_KEY",
+        "      api_key_env: USER_OPENROUTER_API_KEY",
         "      timeout_seconds: 60",
         "      max_actions: 8",
         "      temperature: 0.1",
