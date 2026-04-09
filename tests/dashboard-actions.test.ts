@@ -95,7 +95,7 @@ describe("dashboard actions", () => {
     const [{ ensureArcheReady }, runsModule, actionsModule, { db }, schema] = await Promise.all([
       import("../src/lib/bootstrap"),
       import("../src/lib/arche/runs"),
-      import("../src/lib/arche/dashboard-actions"),
+      import("../src/lib/arche/dashboard"),
       import("../src/lib/db/client"),
       import("../src/lib/db/schema"),
     ]);
@@ -152,7 +152,7 @@ describe("dashboard actions", () => {
     const [{ ensureArcheReady }, runsModule, actionsModule, { db }, schema] = await Promise.all([
       import("../src/lib/bootstrap"),
       import("../src/lib/arche/runs"),
-      import("../src/lib/arche/dashboard-actions"),
+      import("../src/lib/arche/dashboard"),
       import("../src/lib/db/client"),
       import("../src/lib/db/schema"),
     ]);
@@ -185,7 +185,7 @@ describe("dashboard actions", () => {
     const [{ ensureArcheReady }, runsModule, actionsModule, { db }, schema] = await Promise.all([
       import("../src/lib/bootstrap"),
       import("../src/lib/arche/runs"),
-      import("../src/lib/arche/dashboard-actions"),
+      import("../src/lib/arche/dashboard"),
       import("../src/lib/db/client"),
       import("../src/lib/db/schema"),
     ]);
@@ -226,7 +226,7 @@ describe("dashboard actions", () => {
     const [{ ensureArcheReady }, runsModule, actionsModule, { db }, schema] = await Promise.all([
       import("../src/lib/bootstrap"),
       import("../src/lib/arche/runs"),
-      import("../src/lib/arche/dashboard-actions"),
+      import("../src/lib/arche/dashboard"),
       import("../src/lib/db/client"),
       import("../src/lib/db/schema"),
     ]);

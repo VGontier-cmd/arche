@@ -12,7 +12,6 @@ import {
   runs,
 } from "../../db/schema";
 import { NotFoundError } from "../errors";
-import { resolveExecutionProfile } from "../profiles";
 import {
   presentRun,
   presentRunCommand,

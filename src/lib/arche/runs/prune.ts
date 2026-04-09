@@ -1,7 +1,7 @@
 import { readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-import { and, count, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 
 import { getConfig } from "../../config";
 import { db, withSqliteWriteRetry } from "../../db/client";
@@ -17,7 +17,6 @@ import { GitManager } from "../git";
 import { TERMINAL_RUN_STATES } from "../policy";
 import { PRUNE_INTERVAL_MS, RETENTION_DAY_MS } from "./constants";
 import { getRepositoryById } from "./repositories";
-import { appendRunEvent, appendRunLog } from "./run-writer";
 
 let lastPruneAt = 0;
 

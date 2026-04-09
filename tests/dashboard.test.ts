@@ -5,13 +5,13 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { DashboardSnapshot } from "../src/lib/arche/dashboard";
+import { renderDashboardLayout } from "../src/lib/arche/dashboard-ui.js";
 import {
   createDashboardControllerState,
   handleDashboardInput,
   reconcileDashboardControllerState,
-} from "../src/lib/arche/dashboard-controller";
-import { renderDashboardLayout } from "../src/lib/arche/dashboard-ui";
+} from "../src/lib/arche/dashboard/controller.js";
+import type { DashboardSnapshot } from "../src/lib/arche/dashboard/snapshot.js";
 
 describe("dashboard read model", () => {
   let workspace: string;
@@ -100,7 +100,8 @@ describe("dashboard read model", () => {
       "utf8",
     );
 
-    const sqlite = (globalThis as { __archeSqlite?: { close: () => void } }).__archeSqlite;
+    const sqlite = (globalThis as { __archeSqlite?: { close: () => void } })
+      .__archeSqlite;
     sqlite?.close();
     delete (globalThis as { __archeSqlite?: unknown }).__archeSqlite;
     delete (globalThis as { __archeEnv?: unknown }).__archeEnv;
@@ -108,7 +109,8 @@ describe("dashboard read model", () => {
   });
 
   afterEach(async () => {
-    const sqlite = (globalThis as { __archeSqlite?: { close: () => void } }).__archeSqlite;
+    const sqlite = (globalThis as { __archeSqlite?: { close: () => void } })
+      .__archeSqlite;
     sqlite?.close();
     delete (globalThis as { __archeSqlite?: unknown }).__archeSqlite;
     delete (globalThis as { __archeEnv?: unknown }).__archeEnv;
@@ -116,15 +118,21 @@ describe("dashboard read model", () => {
   });
 
   it("buckets inbox, active, and recent runs and builds a unified timeline", async () => {
-    const [{ ensureArcheReady }, runsModule, workersModule, dashboardModule, { db }, schema] =
-      await Promise.all([
-        import("../src/lib/bootstrap"),
-        import("../src/lib/arche/runs"),
-        import("../src/lib/arche/workers"),
-        import("../src/lib/arche/dashboard"),
-        import("../src/lib/db/client"),
-        import("../src/lib/db/schema"),
-      ]);
+    const [
+      { ensureArcheReady },
+      runsModule,
+      workersModule,
+      dashboardModule,
+      { db },
+      schema,
+    ] = await Promise.all([
+      import("../src/lib/bootstrap"),
+      import("../src/lib/arche/runs"),
+      import("../src/lib/arche/workers"),
+      import("../src/lib/arche/dashboard"),
+      import("../src/lib/db/client"),
+      import("../src/lib/db/schema"),
+    ]);
 
     await ensureArcheReady();
 
@@ -140,7 +148,11 @@ describe("dashboard read model", () => {
       raw: {},
     };
 
-    const inboxRun = await runsModule.createRun({ issue, source: "manual", repository: null });
+    const inboxRun = await runsModule.createRun({
+      issue,
+      source: "manual",
+      repository: null,
+    });
     const activeRun = await runsModule.createRun({
       issue: { ...issue, key: "PROJ-501", title: "Active run" },
       source: "manual",
@@ -321,7 +333,10 @@ describe("dashboard read model", () => {
     expect(snapshot.selectedWorker?.currentRunId).toBe(inboxRun.id);
     expect(snapshot.inboxRuns.map((run) => run.id)).toEqual([inboxRun.id]);
     expect(snapshot.activeRuns.map((run) => run.id)).toEqual([activeRun.id]);
-    expect(snapshot.recentRuns.map((run) => run.id)).toEqual([failedRun.id, successRun.id]);
+    expect(snapshot.recentRuns.map((run) => run.id)).toEqual([
+      failedRun.id,
+      successRun.id,
+    ]);
     expect(snapshot.timeline.map((item) => item.source)).toEqual([
       "message",
       "event",
@@ -344,7 +359,9 @@ describe("dashboard read model", () => {
       title: "[system] run created from manual for PROJ-500",
     });
 
-    const offlineWorker = snapshot.workers.find((worker) => worker.id === secondaryWorker.id);
+    const offlineWorker = snapshot.workers.find(
+      (worker) => worker.id === secondaryWorker.id,
+    );
     expect(offlineWorker?.offline).toBe(true);
     expect(offlineWorker?.status).toBe("idle");
   });
@@ -353,7 +370,10 @@ describe("dashboard read model", () => {
 describe("dashboard controller", () => {
   it("navigates runs, tabs, panes, and confirmation flows predictably", () => {
     const snapshot = makeSnapshot();
-    let state = reconcileDashboardControllerState(createDashboardControllerState(), snapshot);
+    let state = reconcileDashboardControllerState(
+      createDashboardControllerState(),
+      snapshot,
+    );
 
     expect(state.selectedRunId).toBe("run-1");
     expect(state.highlightedRunId).toBe("run-1");
@@ -387,7 +407,10 @@ describe("dashboard controller", () => {
     expect(quitResult.effect).toEqual({ type: "quit" });
 
     const approveSnapshot = makeSnapshot({ selectedRunId: "run-1" });
-    state = reconcileDashboardControllerState(createDashboardControllerState(), approveSnapshot);
+    state = reconcileDashboardControllerState(
+      createDashboardControllerState(),
+      approveSnapshot,
+    );
     let result = handleDashboardInput(state, approveSnapshot, "a");
     expect(result.state.modal).toMatchObject({
       kind: "confirm",
@@ -407,7 +430,10 @@ describe("dashboard controller", () => {
 
   it("opens the human reply modal and submits a response", () => {
     const snapshot = makeSnapshot({ selectedRunId: "run-2" });
-    let state = reconcileDashboardControllerState(createDashboardControllerState(), snapshot);
+    let state = reconcileDashboardControllerState(
+      createDashboardControllerState(),
+      snapshot,
+    );
 
     const openResult = handleDashboardInput(state, snapshot, "h");
     state = openResult.state;
@@ -436,16 +462,24 @@ describe("dashboard controller", () => {
 describe("dashboard ui render", () => {
   it("renders run-centric sections, overview actions, plan, and findings", () => {
     const snapshot = makeSnapshot();
-    const overviewState = reconcileDashboardControllerState(createDashboardControllerState(), snapshot);
-    const overview = renderDashboardLayout(snapshot, overviewState, "Connected", {
-      screenWidth: 120,
-      leftHeight: 40,
-      leftWidth: 46,
-      detailHeight: 40,
-      detailWidth: 72,
-      timelineHeight: 20,
-      timelineWidth: 72,
-    });
+    const overviewState = reconcileDashboardControllerState(
+      createDashboardControllerState(),
+      snapshot,
+    );
+    const overview = renderDashboardLayout(
+      snapshot,
+      overviewState,
+      "Connected",
+      {
+        screenWidth: 120,
+        leftHeight: 40,
+        leftWidth: 46,
+        detailHeight: 40,
+        detailWidth: 72,
+        timelineHeight: 20,
+        timelineWidth: 72,
+      },
+    );
 
     expect(overview.header).toContain("______");
     expect(overview.header).toContain("Inbox");
@@ -492,15 +526,20 @@ describe("dashboard ui render", () => {
       ...overviewState,
       detailTab: "findings" as const,
     };
-    const findings = renderDashboardLayout(snapshot, findingsState, "Connected", {
-      screenWidth: 120,
-      leftHeight: 40,
-      leftWidth: 46,
-      detailHeight: 40,
-      detailWidth: 72,
-      timelineHeight: 20,
-      timelineWidth: 72,
-    });
+    const findings = renderDashboardLayout(
+      snapshot,
+      findingsState,
+      "Connected",
+      {
+        screenWidth: 120,
+        leftHeight: 40,
+        leftWidth: 46,
+        detailHeight: 40,
+        detailWidth: 72,
+        timelineHeight: 20,
+        timelineWidth: 72,
+      },
+    );
     expect(findings.detail).toContain("Review summary:");
     expect(findings.detail).toContain("Needs one more patch.");
     expect(findings.detail).toContain("Findings radar:");

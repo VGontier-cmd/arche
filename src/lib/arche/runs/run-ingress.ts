@@ -13,7 +13,7 @@ import {
 import { listMissingExecutionProfileSecrets } from "../profiles";
 import { resolveRepositoryForIssue } from "../repository-resolver";
 import type { JiraIssue } from "../types";
-import { createRun } from "./run-lifecycle";
+import { createRun } from "./run-lifecycle.js";
 
 export async function activeRunExists(ticketKey: string) {
   const [run] = await db
