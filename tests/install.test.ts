@@ -1,9 +1,13 @@
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
   defaultInstallEnvValues,
+  envFileHasNonEmptyValues,
   preserveUnmanagedEnvValues,
   renderInstallEnvFile,
+  resolveArcheProjectEnvPath,
   resolveInstallEnvValues,
 } from "../src/lib/install";
 
@@ -29,6 +33,25 @@ describe("resolveInstallEnvValues", () => {
     });
 
     expect(values.DATABASE_URL).toBe("/srv/arche/arche.db");
+  });
+});
+
+describe("envFileHasNonEmptyValues", () => {
+  it("is false for empty or whitespace-only values", () => {
+    expect(envFileHasNonEmptyValues({})).toBe(false);
+    expect(envFileHasNonEmptyValues({ FOO: "" })).toBe(false);
+    expect(envFileHasNonEmptyValues({ FOO: "  " })).toBe(false);
+  });
+
+  it("is true when any value is non-empty", () => {
+    expect(envFileHasNonEmptyValues({ FOO: "bar" })).toBe(true);
+    expect(envFileHasNonEmptyValues({ FOO: "", BAR: "x" })).toBe(true);
+  });
+});
+
+describe("resolveArcheProjectEnvPath", () => {
+  it("resolves under .arche in the given cwd", () => {
+    expect(resolveArcheProjectEnvPath("/tmp/ws")).toBe(join("/tmp/ws", ".arche/environment"));
   });
 });
 

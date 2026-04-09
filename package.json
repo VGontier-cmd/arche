@@ -5,7 +5,7 @@
   "type": "module",
   "files": [
     "dist",
-    ".env.example",
+    "install",
     "README.md",
     "orchestrator.yml",
     "docker-compose.yml",

@@ -41,7 +41,7 @@ arche init
 
 The `init` wizard:
 
-- creates or updates `.env`
+- creates or updates `.arche/environment` (project install layout; shipped defaults live in `install/env.default` inside the package)
 - initializes SQLite automatically in `${ARCHE_RUNTIME_ROOT}/arche.db`
 - creates runtime directories
 - can configure a default API key for OpenAI-compatible execution profiles
@@ -70,7 +70,8 @@ arche init
 
 ## Important Files
 
-- `.env`: runtime configuration and secrets
+- `.arche/environment`: runtime configuration and secrets for this workspace (written by `arche init`)
+- `.env` (optional): still loaded first if present; use for ad hoc overrides or legacy setups
 - `orchestrator.yml`: business rules and sandbox configuration
 - `runtime/arche.db`: SQLite database
 - `runtime/repos`: local Git mirrors
@@ -79,7 +80,7 @@ arche init
 
 ## Configuration
 
-### `.env`
+### Environment (`.arche/environment`)
 
 Example:
 
@@ -448,7 +449,7 @@ arche worker
 
 The repository already includes [docker-compose.yml](./docker-compose.yml) and [Dockerfile](./Dockerfile), but this mode is **secondary**.
 
-Before `docker compose up`, define **absolute** paths in `.env`:
+Before `docker compose up`, run `arche init` (or create `.arche/environment` yourself) with **absolute** paths:
 
 ```env
 ARCHE_RUNTIME_ROOT=/srv/arche/runtime

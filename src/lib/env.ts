@@ -1,7 +1,15 @@
+import { existsSync } from "node:fs";
+
 import { config as loadDotEnv } from "dotenv";
 import { z } from "zod";
 
+import { resolveArcheProjectEnvPath } from "./install";
+
 loadDotEnv();
+const archeEnvFile = resolveArcheProjectEnvPath();
+if (existsSync(archeEnvFile)) {
+  loadDotEnv({ path: archeEnvFile, override: true });
+}
 
 function readEnvValue(key: keyof NodeJS.ProcessEnv) {
   const value = process.env[key];

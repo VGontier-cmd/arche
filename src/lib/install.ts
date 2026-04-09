@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 
 import { parse as parseDotEnv } from "dotenv";
 
@@ -52,6 +53,18 @@ export async function readEnvFile(path: string) {
   } catch {
     return {};
   }
+}
+
+/** Installed project layout: secrets and local env live next to the workspace, not as a loose package dotfile. */
+export const ARCHE_PROJECT_ENV_RELATIVE = ".arche/environment" as const;
+
+export function resolveArcheProjectEnvPath(cwd = process.cwd()): string {
+  return resolve(cwd, ARCHE_PROJECT_ENV_RELATIVE);
+}
+
+/** True when the parsed env file has at least one non-empty value (whitespace-only counts as empty). */
+export function envFileHasNonEmptyValues(parsed: Record<string, string>): boolean {
+  return Object.values(parsed).some((v) => v !== undefined && String(v).trim() !== "");
 }
 
 export function resolveInstallEnvValues(input: {

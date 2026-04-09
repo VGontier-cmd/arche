@@ -4,7 +4,7 @@ services:
       context: .
       target: server
     env_file:
-      - .env
+      - .arche/environment
     environment:
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL to an absolute SQLite path}
       ARCHE_CONFIG_PATH: ${ARCHE_CONFIG_PATH:?Set ARCHE_CONFIG_PATH to an absolute host path}
@@ -28,7 +28,7 @@ services:
       target: worker
     command: node dist/worker/main.js
     env_file:
-      - .env
+      - .arche/environment
     environment:
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL to an absolute SQLite path}
       ARCHE_CONFIG_PATH: ${ARCHE_CONFIG_PATH:?Set ARCHE_CONFIG_PATH to an absolute host path}

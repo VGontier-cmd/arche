@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
-import { access } from "node:fs/promises";
+import { access, mkdir } from "node:fs/promises";
 import { constants } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import * as p from "@clack/prompts";
 import { Command } from "commander";
@@ -14,12 +15,22 @@ import {
   applyEnvToProcess,
   databaseUrlForRuntimeRoot,
   defaultInstallEnvValues,
+  envFileHasNonEmptyValues,
   preserveUnmanagedEnvValues,
   readEnvFile,
+  resolveArcheProjectEnvPath,
   resolveInstallEnvValues,
   writeInstallEnvFile,
   type InstallEnvValues,
 } from "./lib/install";
+
+function archePackageRootDir(): string {
+  return join(dirname(fileURLToPath(import.meta.url)), "..");
+}
+
+function bundledEnvTemplatePath(): string {
+  return join(archePackageRootDir(), "install", "env.default");
+}
 
 function printJson(value: unknown) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
@@ -42,17 +53,23 @@ program.name("arche").description("Arche self-hosted development agent orchestra
 
 program
   .command("init")
-  .description("Initialize runtime directories and local .env")
+  .description("Initialize runtime directories and project environment (.arche/environment)")
   .option("--yes", "skip prompts and accept inferred defaults")
-  .option("--force", "overwrite existing .env")
+  .option("--force", "overwrite existing .arche/environment")
   .action(async (options: { yes?: boolean; force?: boolean }) => {
     printArcheBanner();
 
-    const envPath = resolve(".env");
-    const examplePath = resolve(".env.example");
-    const hasExistingEnv = await pathExists(envPath);
-    const exampleValues = await readEnvFile(examplePath);
-    const existingValues = await readEnvFile(envPath);
+    const envPath = resolveArcheProjectEnvPath();
+    const legacyEnvPath = resolve(".env");
+    const templatePath = bundledEnvTemplatePath();
+    const hasExistingProjectEnv =
+      (await pathExists(envPath)) && envFileHasNonEmptyValues(await readEnvFile(envPath));
+    const exampleValues = await readEnvFile(templatePath);
+    const existingArche = await readEnvFile(envPath);
+    const existingLegacy = await readEnvFile(legacyEnvPath);
+    const existingValues = { ...existingLegacy, ...existingArche };
+    const hadPriorEnvOnDisk =
+      envFileHasNonEmptyValues(existingArche) || envFileHasNonEmptyValues(existingLegacy);
     const managedValues = resolveInstallEnvValues({
       exampleValues,
       existingValues,
@@ -65,19 +82,22 @@ program
     const extraEnvValues = { ...preservedValues };
 
     const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY && !options.yes);
-    let shouldWriteEnv = !hasExistingEnv || Boolean(options.force);
+    let shouldWriteEnv = !hasExistingProjectEnv || Boolean(options.force);
 
     if (interactive) {
       p.intro("Arche setup");
     }
 
-    if (hasExistingEnv && !options.force) {
+    if (hasExistingProjectEnv && !options.force) {
       if (interactive) {
-        const shouldUpdate = await p.confirm({
-          message: "Update the existing .env file?",
-          initialValue: false,
-        });
-        shouldWriteEnv = guardPrompt(shouldUpdate);
+        const overwrite = guardPrompt(
+          await p.confirm({
+            message:
+              "Existing Arche environment detected (.arche/environment). Overwrite it and run the setup prompts? (No keeps your current file)",
+            initialValue: false,
+          }),
+        );
+        shouldWriteEnv = overwrite;
       } else {
         shouldWriteEnv = false;
       }
@@ -86,12 +106,13 @@ program
     let nextManagedValues = managedValues;
     if (shouldWriteEnv) {
       if (interactive) {
-        nextManagedValues = await promptInstallEnv(managedValues, hasExistingEnv);
+        nextManagedValues = await promptInstallEnv(managedValues, hadPriorEnvOnDisk);
       }
 
+      await mkdir(dirname(envPath), { recursive: true });
       await writeInstallEnvFile(envPath, nextManagedValues, extraEnvValues);
       if (interactive) {
-        p.note(envPath, "Wrote .env");
+        p.note(envPath, "Wrote environment file");
       } else {
         cliLogger.info("cli", "wrote environment file", {
           event: "cli.init.env_written",
@@ -99,7 +120,7 @@ program
         });
       }
     } else if (interactive) {
-      p.note(envPath, "Using existing .env");
+      p.note(envPath, "Using existing environment file");
     }
 
     applyEnvToProcess({
