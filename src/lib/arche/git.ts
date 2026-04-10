@@ -9,9 +9,9 @@ import { ExternalServiceError } from "./errors";
 import type { JiraIssue } from "./types";
 import {
   ensureDirectory,
+  slugifyBranchSegment,
   resolvePathInsideRoot,
   runCommand,
-  slugifyBranchSegment,
   writeTempFile,
 } from "./utils";
 
@@ -103,7 +103,12 @@ export class GitManager {
   }
 
   buildBranchName(issue: JiraIssue) {
-    return `jira/${issue.key}-${slugifyBranchSegment(issue.title)}`;
+    const normalizedPrefix = this.config.git.branch_prefix
+      .trim()
+      .replace(/^\/+/, "")
+      .replace(/\/+$/, "");
+    const branchBase = `${issue.key}-${slugifyBranchSegment(issue.title)}`;
+    return normalizedPrefix ? `${normalizedPrefix}/${branchBase}` : branchBase;
   }
 
   async createWorktree(repository: RepositoryRow, branchName: string, issueKey: string) {

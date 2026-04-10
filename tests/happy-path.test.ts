@@ -173,7 +173,21 @@ vi.mock("../src/lib/arche/sandbox", () => {
 function providerResponse(content: string) {
   return new Response(
     JSON.stringify({
-      choices: [{ message: { content } }],
+      id: "chatcmpl-test",
+      choices: [
+        {
+          index: 0,
+          finish_reason: "stop",
+          message: {
+            role: "assistant",
+            content,
+          },
+        },
+      ],
+      created: 1,
+      model: "test-model",
+      object: "chat.completion",
+      system_fingerprint: null,
     }),
     {
       status: 200,
@@ -182,8 +196,13 @@ function providerResponse(content: string) {
   );
 }
 
-function parseProviderRequest(init?: RequestInit) {
-  const rawBody = typeof init?.body === "string" ? init.body : "{}";
+async function parseProviderRequest(input: string | URL | Request, init?: RequestInit) {
+  const rawBody =
+    input instanceof Request
+      ? await input.clone().text()
+      : typeof init?.body === "string"
+        ? init.body
+        : "{}";
   return JSON.parse(rawBody) as {
     model: string;
     messages?: Array<{ role?: string; content?: string }>;
@@ -337,7 +356,7 @@ describe("workflow orchestration", () => {
             : input.url;
 
       if (url === "https://llm.example.com/v1/chat/completions") {
-        const request = parseProviderRequest(init);
+        const request = await parseProviderRequest(input, init);
         const role = roleFromModel(request.model);
         const cycle = cycleFromMessages(role, request.messages);
         state.providerInvocations.push({

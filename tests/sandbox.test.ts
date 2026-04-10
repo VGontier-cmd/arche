@@ -69,6 +69,12 @@ describe("SandboxManager", () => {
         allowed_commands: [],
         validation_commands: [],
       },
+      routing: {
+        default_repository: null,
+      },
+      git: {
+        branch_prefix: "jira/",
+      },
       workflow: {
         mode: "plan_execute_review",
         max_review_cycles: 3,

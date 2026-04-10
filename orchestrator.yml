@@ -56,6 +56,10 @@ defaults:
     - pnpm lint
     - pnpm test
     - pnpm typecheck
+routing:
+  default_repository: null
+git:
+  branch_prefix: jira/
 workflow:
   mode: plan_execute_review
   max_review_cycles: 3

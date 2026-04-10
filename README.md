@@ -24,7 +24,7 @@ At minimum you need:
 - `docker`
 - Jira access if you want to process real tickets
 - GitLab access if you want to publish real merge requests
-- an [OpenRouter](https://openrouter.ai) account and API key (`USER_OPENROUTER_API_KEY`); Arche calls the OpenRouter OpenAI-compatible `chat/completions` API
+- an [OpenRouter](https://openrouter.ai) account and API key (`USER_OPENROUTER_API_KEY`); Arche uses the OpenRouter TypeScript SDK and calls the OpenRouter `chat/completions` API
 
 ## Installation
 
@@ -42,6 +42,7 @@ arche init
 The `init` wizard:
 
 - creates or updates `.arche/environment` (project install layout; shipped defaults live in `install/env.default` inside the package)
+- creates or updates `orchestrator.yml` with the branch prefix and optional default repository fallback
 - initializes SQLite automatically in `${ARCHE_RUNTIME_ROOT}/arche.db`
 - creates runtime directories
 - can configure `USER_OPENROUTER_API_KEY` for the default OpenRouter-backed executor profile
@@ -125,6 +126,8 @@ The [orchestrator.yml](./orchestrator.yml) file controls:
 
 - runtime directories
 - Jira eligibility policy
+- repository fallback routing
+- git branch naming
 - the Docker sandbox image
 - allowed commands
 - project validation commands
@@ -177,6 +180,12 @@ defaults:
     - pnpm test
     - pnpm typecheck
 
+routing:
+  default_repository: my-service
+
+git:
+  branch_prefix: jira/
+
 workflow:
   mode: plan_execute_review
   max_review_cycles: 3
@@ -225,7 +234,9 @@ Important:
 - `allowed_commands` and `validation_commands` are now **exact tokenized commands**
 - Arche no longer executes them through an implicit shell
 - `pnpm test` therefore does not authorize `pnpm test --watch` or `pnpm test && ...`
-- execution is now **API-only** and always uses `POST /chat/completions` against the selected profile for each role
+- `routing.default_repository` is an optional fallback used only when no `repo-rule` matches the ticket
+- `git.branch_prefix` controls generated branch names; with `jira/`, `PROJ-123` becomes `jira/PROJ-123-...`
+- execution is now **API-only** and always uses the OpenRouter TypeScript SDK against `POST /chat/completions` for the selected profile on each role
 - `planner` and `reviewer` are direct structured calls; `executor` runs through a bounded patch loop controlled by Arche
 
 ## First Useful Setup
@@ -277,6 +288,8 @@ A rule can filter by:
 - Jira project
 - label
 - issue type
+
+If no rule matches and `routing.default_repository` is set, Arche falls back to that repository.
 
 Example:
 

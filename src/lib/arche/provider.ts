@@ -1,10 +1,18 @@
 /**
- * HTTP client for Arche model calls. The default deployment targets **OpenRouter**
- * (`https://openrouter.ai/api/v1`, OpenAI-compatible chat/completions). The driver name
- * stays generic because the wire format matches that API shape.
+ * SDK-backed client for Arche model calls. The default deployment targets **OpenRouter**
+ * (`https://openrouter.ai/api/v1`, chat/completions) while the config driver stays generic
+ * because the selected profile still uses the OpenAI-compatible request shape.
  */
 import { readFile } from "node:fs/promises";
 
+import { HTTPClient, OpenRouter } from "@openrouter/sdk";
+import type { ChatMessages, ChatRequest, ChatResult } from "@openrouter/sdk/models";
+import {
+  ConnectionError,
+  OpenRouterError,
+  RequestAbortedError,
+  RequestTimeoutError,
+} from "@openrouter/sdk/models/errors";
 import { z, type ZodType } from "zod";
 
 import { ExternalServiceError } from "./errors";
@@ -15,8 +23,19 @@ import { createPathGuard } from "./utils";
 const MAX_READ_REQUESTS = 20;
 const MAX_FILE_READ_BYTES = 64 * 1024;
 const MAX_ACTION_READ_BYTES = 256 * 1024;
+const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504, 524, 529]);
 const JSON_REPAIR_MESSAGE =
   "Your previous response was invalid. Return only a corrected JSON object matching the requested schema.";
+
+type ProviderReadResult = {
+  path: string;
+  offset: number;
+  returned_bytes: number;
+  truncated: boolean;
+  next_offset?: number;
+  content: string;
+  missing?: boolean;
+};
 
 const readFilesActionSchema = z
   .object({
@@ -176,19 +195,41 @@ function parseJsonWithSchema<T>(text: string, schema: ZodType<T>): T {
   );
 }
 
-export class OpenAICompatibleProvider {
-  private readonly readCache = new Map<
-    string,
-    {
-      path: string;
-      offset: number;
-      returned_bytes: number;
-      truncated: boolean;
-      next_offset?: number;
-      content: string;
-      missing?: boolean;
-    }
-  >();
+function parseResponseBody(rawText: string): unknown {
+  if (!rawText) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(rawText);
+  } catch {
+    return rawText;
+  }
+}
+
+function isTextContentItem(value: unknown): value is { type: "text"; text: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    value.type === "text" &&
+    "text" in value &&
+    typeof value.text === "string"
+  );
+}
+
+function extractAssistantText(content: unknown) {
+  if (Array.isArray(content)) {
+    return content
+      .flatMap((item) => (isTextContentItem(item) ? [item.text] : []))
+      .join("");
+  }
+
+  return typeof content === "string" ? content : "";
+}
+
+export class OpenRouterSdkProvider {
+  private readonly readCache = new Map<string, ProviderReadResult>();
 
   constructor(private readonly invocation: ProviderInvocation) {}
 
@@ -203,12 +244,39 @@ export class OpenAICompatibleProvider {
   }
 
   private buildPayload(messages: ProviderMessage[]) {
+    const extraBody = this.invocation.extraBody ?? {};
     return {
+      ...extraBody,
       model: this.invocation.modelName,
-      messages,
+      messages: messages.map((message) => ({ ...message })) as ChatMessages[],
       temperature: typeof this.invocation.temperature === "number" ? this.invocation.temperature : 0.1,
-      ...(this.invocation.extraBody ?? {}),
-    };
+      stream: false,
+    } as ChatRequest & Record<string, unknown>;
+  }
+
+  private createClient(attemptRecord: ProviderAttempt, timeoutMs: number) {
+    const httpClient = new HTTPClient({
+      fetcher: async (input, init) => {
+        try {
+          const response = await fetch(input, init);
+          attemptRecord.responseStatus = response.status;
+          const rawText = await response.clone().text();
+          attemptRecord.responseText = rawText;
+          attemptRecord.responseBody = parseResponseBody(rawText);
+          return response;
+        } catch (error) {
+          attemptRecord.error = error instanceof Error ? error.message : "Unknown provider error";
+          throw error;
+        }
+      },
+    });
+
+    return new OpenRouter({
+      apiKey: this.apiKey,
+      serverURL: this.invocation.baseUrl,
+      timeoutMs,
+      httpClient,
+    });
   }
 
   private async requestText(
@@ -227,75 +295,54 @@ export class OpenAICompatibleProvider {
       };
       attempts.push(attemptRecord);
 
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const response = await fetch(
-          `${this.invocation.baseUrl.replace(/\/$/, "")}/chat/completions`,
+        const client = this.createClient(attemptRecord, timeoutMs);
+        const response = await client.chat.send(
+          { chatRequest: requestBody },
           {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${this.apiKey}`,
-              "Content-Type": "application/json",
-              ...(this.invocation.extraHeaders ?? {}),
-            },
-            body: JSON.stringify(requestBody),
-            signal: controller.signal,
+            headers: this.invocation.extraHeaders,
+            retries: { strategy: "none" },
+            timeoutMs,
           },
-        );
+        ) as ChatResult;
 
-        attemptRecord.responseStatus = response.status;
-        const rawText = await response.text();
-        attemptRecord.responseText = rawText;
+        return extractAssistantText(response.choices[0]?.message?.content);
+      } catch (error) {
+        if (error instanceof OpenRouterError) {
+          attemptRecord.responseStatus ??= error.statusCode;
+          attemptRecord.responseText ??= error.body;
+          attemptRecord.responseBody ??= parseResponseBody(error.body);
 
-        let responseBody: unknown = null;
-        try {
-          responseBody = rawText ? JSON.parse(rawText) : null;
-        } catch {
-          responseBody = rawText;
-        }
-        attemptRecord.responseBody = responseBody;
-
-        if (!response.ok) {
-          if (response.status >= 500 && attempt < 2) {
+          if (RETRYABLE_STATUS_CODES.has(error.statusCode) && attempt < 2) {
             continue;
           }
+
           throw new ExternalServiceError(
-            `Inference server request failed: ${response.status} ${redactText(rawText).slice(0, 500)}`,
+            `Inference server request failed: ${error.statusCode} ${redactText(error.body).slice(0, 500)}`,
             "provider_request_failed",
           );
         }
 
-        const body = responseBody as {
-          choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>;
-        };
-        const content = body.choices?.[0]?.message?.content;
-        return Array.isArray(content)
-          ? content.map((part) => part.text ?? "").join("")
-          : (content ?? "");
-      } catch (error) {
-        const aborted =
-          error instanceof Error &&
-          (error.name === "AbortError" || error.message.toLowerCase().includes("aborted"));
-        const retryable =
-          aborted ||
-          (error instanceof TypeError &&
-            error.message.toLowerCase().includes("fetch"));
-
-        attemptRecord.error = error instanceof Error ? error.message : "Unknown provider error";
+        const timedOut = error instanceof RequestTimeoutError || error instanceof RequestAbortedError;
+        const retryable = timedOut || error instanceof ConnectionError;
+        attemptRecord.error ??= error instanceof Error ? error.message : "Unknown provider error";
 
         if (retryable && attempt < 2) {
           continue;
         }
-        if (aborted) {
+        if (timedOut) {
           throw new ExternalServiceError(
             `Inference server request timed out after ${timeoutMs}ms`,
             "provider_request_timeout",
           );
         }
+        if (error instanceof ConnectionError) {
+          throw new ExternalServiceError(
+            "Inference server request failed without a provider response",
+            "provider_request_failed",
+          );
+        }
         throw error;
-      } finally {
-        clearTimeout(timeout);
       }
     }
 
@@ -377,15 +424,7 @@ export class OpenAICompatibleProvider {
     }
 
     const requests = normalizeReadRequests(input).slice(0, MAX_READ_REQUESTS);
-    const files: Array<{
-      path: string;
-      offset: number;
-      returned_bytes: number;
-      truncated: boolean;
-      next_offset?: number;
-      content: string;
-      missing?: boolean;
-    }> = [];
+    const files: ProviderReadResult[] = [];
     const guard = await createPathGuard(this.invocation.worktreePath);
     let remainingBytes = MAX_ACTION_READ_BYTES;
 
@@ -409,7 +448,7 @@ export class OpenAICompatibleProvider {
         continue;
       }
       if (resolved.status === "missing") {
-        const missing = {
+        const missing: ProviderReadResult = {
           path: normalized.path,
           offset: normalized.offset,
           returned_bytes: 0,
@@ -426,7 +465,7 @@ export class OpenAICompatibleProvider {
       const boundedOffset = Math.min(normalized.offset, buffer.length);
       const boundedLimit = Math.min(normalized.limit, MAX_FILE_READ_BYTES);
       const slice = buffer.subarray(boundedOffset, boundedOffset + boundedLimit);
-      const result = {
+      const result: ProviderReadResult = {
         path: normalized.path,
         offset: boundedOffset,
         returned_bytes: slice.length,
@@ -481,15 +520,7 @@ function normalizeReadRequest(
 }
 
 function fitReadResultToBudget(
-  result: {
-    path: string;
-    offset: number;
-    returned_bytes: number;
-    truncated: boolean;
-    next_offset?: number;
-    content: string;
-    missing?: boolean;
-  },
+  result: ProviderReadResult,
   remainingBytes: number,
 ) {
   if (result.returned_bytes <= remainingBytes) {

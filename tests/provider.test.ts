@@ -5,9 +5,35 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { OpenAICompatibleProvider } from "../src/lib/arche/provider";
+import { OpenRouterSdkProvider } from "../src/lib/arche/provider";
 
-describe("OpenAICompatibleProvider", () => {
+function chatCompletionResponse(content: string) {
+  return new Response(
+    JSON.stringify({
+      id: "chatcmpl-test",
+      choices: [
+        {
+          index: 0,
+          finish_reason: "stop",
+          message: {
+            role: "assistant",
+            content,
+          },
+        },
+      ],
+      created: 1,
+      model: "test-model",
+      object: "chat.completion",
+      system_fingerprint: null,
+    }),
+    {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+}
+
+describe("OpenRouterSdkProvider", () => {
   let workspace: string;
 
   beforeEach(async () => {
@@ -22,12 +48,23 @@ describe("OpenAICompatibleProvider", () => {
   });
 
   function makeProvider() {
-    return new OpenAICompatibleProvider({
+    return new OpenRouterSdkProvider({
       worktreePath: workspace,
       modelName: "test-model",
       baseUrl: "https://llm.example.com/v1",
       apiKeyEnv: "TEST_PROVIDER_KEY",
       timeoutMs: 500,
+    });
+  }
+
+  function makeProviderWithOverrides(overrides: Partial<ConstructorParameters<typeof OpenRouterSdkProvider>[0]>) {
+    return new OpenRouterSdkProvider({
+      worktreePath: workspace,
+      modelName: "test-model",
+      baseUrl: "https://llm.example.com/v1",
+      apiKeyEnv: "TEST_PROVIDER_KEY",
+      timeoutMs: 500,
+      ...overrides,
     });
   }
 
@@ -40,20 +77,7 @@ describe("OpenAICompatibleProvider", () => {
     ];
 
     for (const payload of payloads) {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue(
-          new Response(
-            JSON.stringify({
-              choices: [{ message: { content: payload } }],
-            }),
-            {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            },
-          ),
-        ),
-      );
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(chatCompletionResponse(payload)));
 
       const result = await provider.completeAction([{ role: "user", content: "return an action" }]);
       expect(result.action).toMatchObject({
@@ -63,6 +87,52 @@ describe("OpenAICompatibleProvider", () => {
     }
   });
 
+  it("captures request and response artifacts for each attempt", async () => {
+    const provider = makeProvider();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(chatCompletionResponse(`{"action":"finish","summary":"ok","implementedPlanDelta":"delta"}`)),
+    );
+
+    const result = await provider.completeAction([{ role: "user", content: "return an action" }]);
+
+    expect(result.attempts).toHaveLength(1);
+    expect(result.attempts[0]).toMatchObject({
+      requestBody: {
+        model: "test-model",
+        messages: [{ role: "user", content: "return an action" }],
+        temperature: 0.1,
+        stream: false,
+      },
+      responseStatus: 200,
+    });
+    expect(result.attempts[0]?.responseText).toContain(`"id":"chatcmpl-test"`);
+    expect(result.attempts[0]?.responseBody).toMatchObject({
+      id: "chatcmpl-test",
+      model: "test-model",
+    });
+  });
+
+  it("keeps requests non-streaming even when extraBody asks for streaming", async () => {
+    const provider = makeProviderWithOverrides({
+      extraBody: {
+        stream: true,
+      },
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(chatCompletionResponse(`{"action":"finish","summary":"ok","implementedPlanDelta":"delta"}`)),
+    );
+
+    const result = await provider.completeAction([{ role: "user", content: "return an action" }]);
+
+    expect(result.attempts[0]?.requestBody).toMatchObject({
+      stream: false,
+    });
+  });
+
   it("retries one time on retryable provider failures", async () => {
     const provider = makeProvider();
 
@@ -70,23 +140,9 @@ describe("OpenAICompatibleProvider", () => {
       "fetch",
       vi
         .fn()
-        .mockResolvedValueOnce(new Response("upstream error", { status: 500 }))
+        .mockResolvedValueOnce(new Response("upstream error", { status: 500, headers: { "Content-Type": "text/plain" } }))
         .mockResolvedValueOnce(
-          new Response(
-            JSON.stringify({
-              choices: [
-                {
-                  message: {
-                    content: `{"action":"finish","summary":"retried","implementedPlanDelta":"delta"}`,
-                  },
-                },
-              ],
-            }),
-            {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            },
-          ),
+          chatCompletionResponse(`{"action":"finish","summary":"retried","implementedPlanDelta":"delta"}`),
         ),
     );
 
@@ -95,6 +151,41 @@ describe("OpenAICompatibleProvider", () => {
       action: "finish",
       summary: "retried",
     });
+  });
+
+  it("retries one time on rate-limited OpenRouter responses", async () => {
+    const provider = makeProvider();
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              error: {
+                message: "rate limited",
+                code: 429,
+              },
+            }),
+            {
+              status: 429,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        )
+        .mockResolvedValueOnce(
+          chatCompletionResponse(`{"action":"finish","summary":"retried-after-429","implementedPlanDelta":"delta"}`),
+        ),
+    );
+
+    const result = await provider.completeAction([{ role: "user", content: "return an action" }]);
+
+    expect(result.action).toMatchObject({
+      action: "finish",
+      summary: "retried-after-429",
+    });
+    expect(result.attempts).toHaveLength(2);
   });
 
   it("repairs invalid structured JSON once for planner or reviewer calls", async () => {
@@ -110,37 +201,15 @@ describe("OpenAICompatibleProvider", () => {
       "fetch",
       vi
         .fn()
+        .mockResolvedValueOnce(chatCompletionResponse("not valid json"))
         .mockResolvedValueOnce(
-          new Response(
+          chatCompletionResponse(
             JSON.stringify({
-              choices: [{ message: { content: "not valid json" } }],
+              planMarkdown: "1. Inspect popup\n2. Ship fix",
+              risks: [],
+              openQuestions: [],
+              needsHumanInput: false,
             }),
-            {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            },
-          ),
-        )
-        .mockResolvedValueOnce(
-          new Response(
-            JSON.stringify({
-              choices: [
-                {
-                  message: {
-                    content: JSON.stringify({
-                      planMarkdown: "1. Inspect popup\n2. Ship fix",
-                      risks: [],
-                      openQuestions: [],
-                      needsHumanInput: false,
-                    }),
-                  },
-                },
-              ],
-            }),
-            {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            },
           ),
         ),
     );
@@ -153,23 +222,45 @@ describe("OpenAICompatibleProvider", () => {
   it("rejects invalid provider actions after parsing", async () => {
     const provider = makeProvider();
 
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => chatCompletionResponse(`{"action":"unknown"}`)));
+
+    await expect(provider.completeAction([{ role: "user", content: "return an action" }])).rejects.toMatchObject({
+      code: "provider_output_invalid",
+    });
+  });
+
+  it("maps SDK timeout errors to provider_request_timeout", async () => {
+    const provider = makeProvider();
+
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockImplementation(async () =>
-        new Response(
-          JSON.stringify({
-            choices: [{ message: { content: `{"action":"unknown"}` } }],
-          }),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          },
-        ),
+      vi.fn().mockRejectedValue(
+        Object.assign(new Error("Request timed out"), {
+          name: "TimeoutError",
+        }),
       ),
     );
 
     await expect(provider.completeAction([{ role: "user", content: "return an action" }])).rejects.toMatchObject({
-      code: "provider_output_invalid",
+      code: "provider_request_timeout",
+    });
+  });
+
+  it("maps non-retryable HTTP errors to provider_request_failed", async () => {
+    const provider = makeProvider();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("bad request", {
+          status: 400,
+          headers: { "Content-Type": "text/plain" },
+        }),
+      ),
+    );
+
+    await expect(provider.completeAction([{ role: "user", content: "return an action" }])).rejects.toMatchObject({
+      code: "provider_request_failed",
     });
   });
 

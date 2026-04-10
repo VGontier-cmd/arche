@@ -270,4 +270,92 @@ describe("manual runs", () => {
       code: "manual_run_repo_required",
     });
   });
+
+  it("falls back to the configured default repository when no repo-rule matches", async () => {
+    const configPath = join(workspace, "orchestrator.yml");
+    await writeFile(
+      configPath,
+      [
+        "runtime:",
+        `  root_dir: ${runtimeRoot}`,
+        `  repos_dir: ${runtimeRoot}/repos`,
+        `  runs_dir: ${runtimeRoot}/runs`,
+        `  logs_dir: ${runtimeRoot}/logs`,
+        "worker:",
+        "  poll_interval_seconds: 1",
+        "  lease_ttl_seconds: 60",
+        "  max_agent_steps: 4",
+        "  max_run_seconds: 60",
+        "policy:",
+        "  assignee: agent-dev",
+        "  required_status: In Progress",
+        "  required_label: agent-ready",
+        "  allowed_issue_types:",
+        "    - Bug",
+        "  max_changed_files: 20",
+        "  max_changed_lines: 500",
+        "  description_min_length: 20",
+        "sandbox:",
+        "  image: arche-test:latest",
+        "  network: bridge",
+        "  shell: /bin/bash",
+        "defaults:",
+        "  allowed_commands: []",
+        "  validation_commands: []",
+        "routing:",
+        "  default_repository: my-service",
+        "workflow:",
+        "  mode: plan_execute_review",
+        "  max_review_cycles: 3",
+        "  require_plan_approval: true",
+        "  require_publish_approval: true",
+        "executors:",
+        "  defaults:",
+        "    planner: default",
+        "    executor: default",
+        "    reviewer: default",
+        "  profiles:",
+        "    default:",
+        "      driver: openai_compatible_api",
+        "      base_url: https://llm.example.com/v1",
+        "      model: test-model",
+        "      api_key_env: USER_OPENROUTER_API_KEY",
+        "      timeout_seconds: 60",
+        "      max_actions: 8",
+        "      temperature: 0.1",
+        "bootstrap:",
+        "  repositories:",
+        "    - name: my-service",
+        "      gitProvider: gitlab",
+        "      remoteUrl: git@gitlab.example.com:team/my-service.git",
+        `      localMirrorPath: ${runtimeRoot}/repos/my-service`,
+        "      defaultBranch: main",
+        "      gitlabProjectId: team%2Fmy-service",
+        "      allowedCommands: []",
+        "      validationCommands: []",
+        "  repo_rules: []",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    currentIssue = {
+      ...currentIssue,
+      projectKey: "OTHER",
+    };
+
+    vi.resetModules();
+    const [{ ensureArcheReady }, { createManualRunForTicket }] = await Promise.all([
+      import("../src/lib/bootstrap"),
+      import("../src/lib/arche/runs"),
+    ]);
+    await ensureArcheReady();
+
+    const run = await createManualRunForTicket({
+      ticketKey: "PROJ-800",
+    });
+
+    expect(run.repoName).toBe("my-service");
+    expect(run.status).toBe("pending");
+  });
 });

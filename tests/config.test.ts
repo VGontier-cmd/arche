@@ -46,6 +46,8 @@ describe("getConfig", () => {
       model: "openai/gpt-5.4-mini",
       api_key_env: "USER_OPENROUTER_API_KEY",
     });
+    expect(config.routing.default_repository).toBeNull();
+    expect(config.git.branch_prefix).toBe("jira/");
     expect(config.runtime.root_dir).toBe(runtimeRoot);
   });
 
@@ -90,6 +92,10 @@ describe("getConfig", () => {
       "policy: {}",
       "sandbox: {}",
       "defaults: {}",
+      "routing:",
+      "  default_repository: shared-service",
+      "git:",
+      "  branch_prefix: arche/",
       "executors:",
       "  defaults:",
       "    planner: planner",
@@ -123,5 +129,7 @@ describe("getConfig", () => {
     expect(config.executors.profiles.planner.model).toBe("openai/gpt-5.4");
     expect(config.executors.profiles.executor.model).toBe("openai/gpt-5.4-mini");
     expect(config.executors.profiles.reviewer.api_key_env).toBe("USER_OPENROUTER_API_KEY");
+    expect(config.routing.default_repository).toBe("shared-service");
+    expect(config.git.branch_prefix).toBe("arche/");
   });
 });

@@ -247,9 +247,13 @@ describe("run ownership heartbeat", () => {
           await delay(providerDelayMs);
           return new Response(
             JSON.stringify({
+              id: "chatcmpl-test",
               choices: [
                 {
+                  index: 0,
+                  finish_reason: "stop",
                   message: {
+                    role: "assistant",
                     content: JSON.stringify({
                       planMarkdown: "1. Wait for a slow provider\n2. Ensure the lease stays alive",
                       risks: [],
@@ -259,6 +263,10 @@ describe("run ownership heartbeat", () => {
                   },
                 },
               ],
+              created: 1,
+              model: "test-planner-model",
+              object: "chat.completion",
+              system_fingerprint: null,
             }),
             {
               status: 200,

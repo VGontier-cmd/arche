@@ -24,7 +24,7 @@ function commandResult(returncode = 0, stdout = "", stderr = "") {
   };
 }
 
-describe("GitManager.commitAndPush", () => {
+describe("GitManager", () => {
   beforeEach(() => {
     runCommandMock.mockReset();
     delete process.env.USER_GIT_AUTHOR_NAME;
@@ -167,5 +167,37 @@ describe("GitManager.commitAndPush", () => {
     });
 
     expect(runCommandMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("uses the configured branch prefix", async () => {
+    const { GitManager } = await import("../src/lib/arche/git");
+    const manager = new GitManager({
+      git: {
+        branch_prefix: "arche/",
+      },
+    } as OrchestratorConfig);
+
+    expect(
+      manager.buildBranchName({
+        key: "PROJ-321",
+        title: "Fix popup alignment",
+      } as never),
+    ).toBe("arche/PROJ-321-fix-popup-alignment");
+  });
+
+  it("supports an empty branch prefix", async () => {
+    const { GitManager } = await import("../src/lib/arche/git");
+    const manager = new GitManager({
+      git: {
+        branch_prefix: "",
+      },
+    } as OrchestratorConfig);
+
+    expect(
+      manager.buildBranchName({
+        key: "PROJ-321",
+        title: "Fix popup alignment",
+      } as never),
+    ).toBe("PROJ-321-fix-popup-alignment");
   });
 });

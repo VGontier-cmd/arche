@@ -7,7 +7,7 @@ import { CancelledError, ExternalServiceError } from "./errors";
 import { GitManager } from "./git";
 import { redactText, truncateText } from "./logging";
 import {
-  OpenAICompatibleProvider,
+  OpenRouterSdkProvider,
   type ProviderAttempt,
   type ProviderMessage,
 } from "./provider";
@@ -255,7 +255,7 @@ function buildRoleMessages(prompt: string): ProviderMessage[] {
 }
 
 function createProvider(profile: ResolvedExecutionProfile, worktreePath?: string) {
-  return new OpenAICompatibleProvider({
+  return new OpenRouterSdkProvider({
     worktreePath,
     modelName: profile.model,
     baseUrl: profile.base_url,
@@ -323,7 +323,7 @@ function summarizeObservation(observation: unknown) {
 }
 
 type RoleAction = ExecutorAction;
-type ExecutorAction = Awaited<ReturnType<OpenAICompatibleProvider["completeAction"]>>["action"];
+type ExecutorAction = Awaited<ReturnType<OpenRouterSdkProvider["completeAction"]>>["action"];
 
 async function createRoleTask(
   hooks: WorkflowHooks,

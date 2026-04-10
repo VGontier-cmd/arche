@@ -37,6 +37,14 @@ const defaultWorkflowConfig = {
   require_publish_approval: true,
 } as const;
 
+const defaultRoutingConfig = {
+  default_repository: null,
+} as const;
+
+const defaultGitConfig = {
+  branch_prefix: "jira/",
+} as const;
+
 const defaultExecutorProfile = {
   driver: "openai_compatible_api",
   base_url: "https://openrouter.ai/api/v1",
@@ -143,6 +151,16 @@ const orchestratorConfigSchema = z.object({
     allowed_commands: z.array(z.string()).default([]),
     validation_commands: z.array(z.string()).default([]),
   }),
+  routing: z
+    .object({
+      default_repository: z.string().min(1).nullable().default(defaultRoutingConfig.default_repository),
+    })
+    .default(defaultRoutingConfig),
+  git: z
+    .object({
+      branch_prefix: z.string().default(defaultGitConfig.branch_prefix),
+    })
+    .default(defaultGitConfig),
   workflow: z
     .object({
       mode: z.literal("plan_execute_review").default(defaultWorkflowConfig.mode),
@@ -185,6 +203,12 @@ const defaultConfig: OrchestratorConfig = {
   defaults: {
     allowed_commands: [],
     validation_commands: [],
+  },
+  routing: {
+    ...defaultRoutingConfig,
+  },
+  git: {
+    ...defaultGitConfig,
   },
   workflow: {
     ...defaultWorkflowConfig,

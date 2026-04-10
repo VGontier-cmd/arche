@@ -3,8 +3,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  defaultInitOrchestratorValues,
   defaultInstallEnvValues,
   envFileHasNonEmptyValues,
+  mergeInitOrchestratorConfig,
+  normalizeBranchPrefix,
   preserveUnmanagedEnvValues,
   renderInstallEnvFile,
   resolveArcheProjectEnvPath,
@@ -89,5 +92,67 @@ describe("renderInstallEnvFile", () => {
     expect(output).toContain("# User — GitLab");
     expect(output).toContain("# User — additional variables");
     expect(output).toContain("EXTRA_SERVICE_TOKEN=change-me");
+  });
+});
+
+describe("normalizeBranchPrefix", () => {
+  it("normalizes prefixes into a slash-terminated path", () => {
+    expect(normalizeBranchPrefix("jira")).toBe("jira/");
+    expect(normalizeBranchPrefix("arche/feature/")).toBe("arche/feature/");
+    expect(normalizeBranchPrefix("")).toBe("");
+  });
+});
+
+describe("mergeInitOrchestratorConfig", () => {
+  it("stores branch prefix and optional default repository", () => {
+    const config = mergeInitOrchestratorConfig(
+      {
+        workflow: {
+          mode: "plan_execute_review",
+        },
+      },
+      {
+        ...defaultInitOrchestratorValues,
+        branchPrefix: "arche/",
+        defaultRepository: "my-service",
+      },
+    );
+
+    expect(config).toMatchObject({
+      workflow: {
+        mode: "plan_execute_review",
+      },
+      git: {
+        branch_prefix: "arche/",
+      },
+      routing: {
+        default_repository: "my-service",
+      },
+    });
+  });
+
+  it("removes the routing fallback when the repository is blank", () => {
+    const config = mergeInitOrchestratorConfig(
+      {
+        routing: {
+          default_repository: "my-service",
+          keep: true,
+        },
+      },
+      {
+        branchPrefix: "jira/",
+        defaultRepository: "",
+      },
+    );
+
+    expect(config).toMatchObject({
+      git: {
+        branch_prefix: "jira/",
+      },
+      routing: {
+        keep: true,
+      },
+    });
+    expect((config.routing as { default_repository?: string }).default_repository).toBeUndefined();
   });
 });

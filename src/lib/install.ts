@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { parse as parseDotEnv } from "dotenv";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 /** OpenRouter API key (https://openrouter.ai/keys); referenced by `api_key_env` on the default executor profile. */
 export const USER_OPENROUTER_API_KEY_ENV = "USER_OPENROUTER_API_KEY" as const;
@@ -56,12 +57,56 @@ export const defaultInstallEnvValues: InstallEnvValues = {
   USER_GITLAB_TOKEN: "",
 };
 
+export const defaultInitOrchestratorValues = {
+  branchPrefix: "jira/",
+  defaultRepository: "",
+} as const;
+
+export type InitOrchestratorValues = {
+  branchPrefix: string;
+  defaultRepository: string;
+};
+
 export async function readEnvFile(path: string) {
   try {
     const raw = await readFile(path, "utf8");
     return parseDotEnv(raw);
   } catch {
     return {};
+  }
+}
+
+export async function readInitOrchestratorConfig(path: string): Promise<{
+  rawConfig: Record<string, unknown>;
+  values: InitOrchestratorValues;
+}> {
+  try {
+    const raw = await readFile(path, "utf8");
+    const parsed = parseYaml(raw);
+    const rawConfig = isObjectRecord(parsed) ? parsed : {};
+    const routing = isObjectRecord(rawConfig.routing) ? rawConfig.routing : {};
+    const git = isObjectRecord(rawConfig.git) ? rawConfig.git : {};
+    return {
+      rawConfig,
+      values: {
+        branchPrefix:
+          typeof git.branch_prefix === "string"
+            ? git.branch_prefix
+            : defaultInitOrchestratorValues.branchPrefix,
+        defaultRepository:
+          typeof routing.default_repository === "string" ? routing.default_repository : "",
+      },
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return {
+        rawConfig: {},
+        values: {
+          ...defaultInitOrchestratorValues,
+        },
+      };
+    }
+    throw error;
   }
 }
 
@@ -106,9 +151,54 @@ export function preserveUnmanagedEnvValues(input: {
   );
 }
 
+export function normalizeBranchPrefix(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  return `${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}/`;
+}
+
+export function mergeInitOrchestratorConfig(
+  rawConfig: Record<string, unknown>,
+  values: InitOrchestratorValues,
+) {
+  const nextConfig: Record<string, unknown> = {
+    ...rawConfig,
+  };
+  const nextGit = {
+    ...(isObjectRecord(rawConfig.git) ? rawConfig.git : {}),
+    branch_prefix: normalizeBranchPrefix(values.branchPrefix),
+  };
+  nextConfig.git = nextGit;
+
+  const defaultRepository = values.defaultRepository.trim();
+  const nextRouting = {
+    ...(isObjectRecord(rawConfig.routing) ? rawConfig.routing : {}),
+  };
+
+  if (defaultRepository) {
+    nextRouting.default_repository = defaultRepository;
+  } else {
+    delete nextRouting.default_repository;
+  }
+
+  if (Object.keys(nextRouting).length > 0) {
+    nextConfig.routing = nextRouting;
+  } else {
+    delete nextConfig.routing;
+  }
+
+  return nextConfig;
+}
+
 export async function writeInstallEnvFile(path: string, values: InstallEnvValues, preserved: Record<string, string>) {
   const content = renderInstallEnvFile(values, preserved);
   await writeFile(path, content, "utf8");
+}
+
+export async function writeInitOrchestratorConfig(path: string, config: Record<string, unknown>) {
+  await writeFile(path, stringifyYaml(config), "utf8");
 }
 
 function renderKeyBlock(lines: string[], keys: readonly string[], values: InstallEnvValues) {
@@ -167,6 +257,10 @@ function pickManagedOverrides(input?: Partial<Record<string, string | undefined>
 
 function hasKeys(input?: Record<string, string>) {
   return Boolean(input && Object.keys(input).length > 0);
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function formatEnvValue(value: string) {

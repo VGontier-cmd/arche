@@ -15,13 +15,19 @@ import {
   applyEnvToProcess,
   databaseUrlForRuntimeRoot,
   defaultInstallEnvValues,
+  defaultInitOrchestratorValues,
   envFileHasNonEmptyValues,
+  mergeInitOrchestratorConfig,
+  normalizeBranchPrefix,
+  readInitOrchestratorConfig,
   USER_OPENROUTER_API_KEY_ENV,
   preserveUnmanagedEnvValues,
   readEnvFile,
   resolveArcheProjectEnvPath,
   resolveInstallEnvValues,
+  writeInitOrchestratorConfig,
   writeInstallEnvFile,
+  type InitOrchestratorValues,
   type InstallEnvValues,
 } from "./lib/install";
 
@@ -128,6 +134,43 @@ program
       ...extraEnvValues,
       ...nextManagedValues,
     });
+
+    const orchestratorPath = resolve(nextManagedValues.ARCHE_CONFIG_PATH);
+    const hasExistingOrchestratorConfig = await pathExists(orchestratorPath);
+    const orchestratorConfigState = await readInitOrchestratorConfig(orchestratorPath);
+    let shouldWriteOrchestratorConfig = !hasExistingOrchestratorConfig || Boolean(options.force);
+
+    if (interactive && hasExistingOrchestratorConfig && !options.force) {
+      const updateOrchestratorConfig = guardPrompt(
+        await p.confirm({
+          message: "Update branch prefix and default repository in orchestrator config now?",
+          initialValue: false,
+        }),
+      );
+      shouldWriteOrchestratorConfig = updateOrchestratorConfig;
+    }
+
+    if (shouldWriteOrchestratorConfig) {
+      const nextOrchestratorValues = interactive
+        ? await promptInitOrchestratorValues(orchestratorConfigState.values)
+        : orchestratorConfigState.values;
+      const nextOrchestratorConfig = mergeInitOrchestratorConfig(
+        orchestratorConfigState.rawConfig,
+        nextOrchestratorValues,
+      );
+      await mkdir(dirname(orchestratorPath), { recursive: true });
+      await writeInitOrchestratorConfig(orchestratorPath, nextOrchestratorConfig);
+      if (interactive) {
+        p.note(orchestratorPath, "Wrote orchestrator config");
+      } else {
+        cliLogger.info("cli", "wrote orchestrator config", {
+          event: "cli.init.orchestrator_written",
+          details: { orchestratorPath },
+        });
+      }
+    } else if (interactive) {
+      p.note(orchestratorPath, "Using existing orchestrator config");
+    }
 
     const spinner = interactive ? p.spinner() : null;
     spinner?.start("Preparing Arche runtime");
@@ -901,9 +944,57 @@ async function promptInstallEnv(current: InstallEnvValues, hasExistingEnv: boole
   };
 }
 
+async function promptInitOrchestratorValues(current: InitOrchestratorValues) {
+  p.note(
+    [
+      "These values are stored in orchestrator.yml.",
+      "The default repository is used only when no repo-rule matches a ticket.",
+      "The branch prefix is prepended to generated branches.",
+    ].join("\n"),
+    "Orchestrator defaults",
+  );
+
+  const defaultRepository = guardPrompt(
+    await p.text({
+      message: "Default repository name (optional fallback when no repo-rule matches)",
+      initialValue: current.defaultRepository,
+      placeholder: defaultInitOrchestratorValues.defaultRepository,
+    }),
+  ).trim();
+
+  const branchPrefix = normalizeBranchPrefix(
+    guardPrompt(
+      await p.text({
+        message: "Branch prefix for generated branches",
+        initialValue: current.branchPrefix,
+        placeholder: defaultInitOrchestratorValues.branchPrefix,
+        validate: validateBranchPrefix,
+      }),
+    ),
+  );
+
+  return {
+    defaultRepository,
+    branchPrefix,
+  };
+}
+
 function validateRequired(value: string | undefined) {
   if (!value?.trim()) {
     return "Value is required";
+  }
+}
+
+function validateBranchPrefix(value: string | undefined) {
+  const normalized = normalizeBranchPrefix(value ?? "");
+  if (normalized.length === 0) {
+    return;
+  }
+  if (!/^[A-Za-z0-9._/-]+\/$/.test(normalized)) {
+    return "Use only letters, numbers, ., _, -, and /";
+  }
+  if (normalized.includes("//")) {
+    return "Branch prefix cannot contain empty path segments";
   }
 }
 

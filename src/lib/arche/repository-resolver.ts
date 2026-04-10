@@ -1,5 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 
+import { getConfig } from "../config";
 import { db } from "../db/client";
 import { repoRules, repositories } from "../db/schema";
 import { NotFoundError } from "./errors";
@@ -23,6 +24,20 @@ export async function resolveRepositoryForIssue(issue: JiraIssue) {
     if (rule.label && !issue.labels.includes(rule.label)) continue;
     if (rule.issueType && rule.issueType !== issue.issueType) continue;
     return repository;
+  }
+
+  const config = await getConfig();
+  const defaultRepositoryName = config.routing.default_repository?.trim();
+  if (defaultRepositoryName) {
+    const [defaultRepository] = await db
+      .select()
+      .from(repositories)
+      .where(eq(repositories.name, defaultRepositoryName))
+      .limit(1);
+    if (defaultRepository?.enabled) {
+      return defaultRepository;
+    }
+    throw new NotFoundError(`Configured default repository ${defaultRepositoryName} was not found or is disabled`);
   }
 
   throw new NotFoundError(`No repository rule matched issue ${issue.key}`);
