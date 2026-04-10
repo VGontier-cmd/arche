@@ -542,7 +542,13 @@ async function resolveRunContextForProcessing(input: {
 
   const run = await ensureRunContext(input.runId, input.run, repository, input.deps);
 
-  if (run.status !== "publish_approved") {
+  const bypassedEligibilityChecks =
+    typeof run.manualOverride === "object" &&
+    run.manualOverride !== null &&
+    (run.manualOverride as { bypassedEligibilityChecks?: unknown })
+      .bypassedEligibilityChecks === true;
+
+  if (run.status !== "publish_approved" && !bypassedEligibilityChecks) {
     assertIssueEligible(issue, input.services.config.policy, {
       hasActiveRun: false,
       repoResolved: true,
