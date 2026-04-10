@@ -47,6 +47,13 @@ export function renderHeader(snapshot: DashboardSnapshot, screenWidth: number) {
   const onlineDot = `{${PAL.done}-fg}●{/}`;
   const offlineDot = `{${PAL.grey}-fg}○{/}`;
   const workersLine = `{${PAL.grey}-fg}Workers{/}  ${onlineDot} {${PAL.white}-fg}{bold}${workerOnlineCount}{/}{${PAL.grey}-fg}/{/}{${PAL.white}-fg}${snapshot.summary.workerCount}{/} online  ${offlineDot} {${PAL.white}-fg}${workerOfflineCount}{/} offline`;
+  const serverDot = snapshot.services.serverRunning
+    ? `{${PAL.done}-fg}●{/}`
+    : `{${PAL.failedFg}-fg}●{/}`;
+  const workerDot = snapshot.services.workerRunning
+    ? `{${PAL.done}-fg}●{/}`
+    : `{${PAL.failedFg}-fg}●{/}`;
+  const servicesLine = `{${PAL.grey}-fg}Services{/}  API server ${serverDot}  Worker service ${workerDot}`;
 
   const selectedLine = snapshot.selectedRun
     ? `{${PAL.grey}-fg}Selected{/}  {${PAL.white}-fg}{bold}${snapshot.selectedRun.ticketKey}{/}  ${formatRunStatusForHeader(snapshot.selectedRun.status)}`
@@ -78,6 +85,7 @@ export function renderHeader(snapshot: DashboardSnapshot, screenWidth: number) {
     ...bannerLines,
     statsLine,
     projectsLine,
+    servicesLine,
     workersLine,
     selectedLine,
   ];

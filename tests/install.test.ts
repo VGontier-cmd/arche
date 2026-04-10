@@ -135,6 +135,13 @@ describe("mergeInitOrchestratorConfig", () => {
       git: {
         branch_prefix: "arche/",
       },
+      executors: {
+        profiles: {
+          default: {
+            model: "openai/gpt-5.4-mini",
+          },
+        },
+      },
     });
   });
 
@@ -157,6 +164,13 @@ describe("mergeInitOrchestratorConfig", () => {
       },
       git: {
         branch_prefix: "arche/",
+      },
+      executors: {
+        profiles: {
+          default: {
+            model: "openai/gpt-5.4-mini",
+          },
+        },
       },
     });
   });

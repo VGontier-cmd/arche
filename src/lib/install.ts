@@ -59,6 +59,7 @@ export const defaultInstallEnvValues: InstallEnvValues = {
 
 export const defaultInitOrchestratorValues = {
   branchPrefix: "arche/",
+  sharedModel: "openai/gpt-5.4-mini",
 } as const;
 
 const defaultInitOrchestratorConfig: Record<string, unknown> = {
@@ -142,6 +143,7 @@ const defaultInitOrchestratorConfig: Record<string, unknown> = {
 
 export type InitOrchestratorValues = {
   branchPrefix: string;
+  sharedModel: string;
 };
 
 export async function readEnvFile(path: string) {
@@ -162,6 +164,9 @@ export async function readInitOrchestratorConfig(path: string): Promise<{
     const parsed = parseYaml(raw);
     const rawConfig = isObjectRecord(parsed) ? parsed : {};
     const git = isObjectRecord(rawConfig.git) ? rawConfig.git : {};
+    const executors = isObjectRecord(rawConfig.executors) ? rawConfig.executors : {};
+    const profiles = isObjectRecord(executors.profiles) ? executors.profiles : {};
+    const defaultProfile = isObjectRecord(profiles.default) ? profiles.default : {};
     return {
       rawConfig,
       values: {
@@ -169,6 +174,10 @@ export async function readInitOrchestratorConfig(path: string): Promise<{
           typeof git.branch_prefix === "string"
             ? git.branch_prefix
             : defaultInitOrchestratorValues.branchPrefix,
+        sharedModel:
+          typeof defaultProfile.model === "string"
+            ? defaultProfile.model
+            : defaultInitOrchestratorValues.sharedModel,
       },
     };
   } catch (error) {
@@ -246,6 +255,20 @@ export function mergeInitOrchestratorConfig(
     branch_prefix: normalizeBranchPrefix(values.branchPrefix),
   };
   nextConfig.git = nextGit;
+  const currentExecutors = isObjectRecord(rawConfig.executors) ? rawConfig.executors : {};
+  const currentProfiles = isObjectRecord(currentExecutors.profiles) ? currentExecutors.profiles : {};
+  const currentDefaultProfile = isObjectRecord(currentProfiles.default) ? currentProfiles.default : {};
+  const normalizedModel = values.sharedModel.trim() || defaultInitOrchestratorValues.sharedModel;
+  nextConfig.executors = {
+    ...(isObjectRecord(nextConfig.executors) ? nextConfig.executors : {}),
+    profiles: {
+      ...(isObjectRecord(currentExecutors.profiles) ? currentExecutors.profiles : {}),
+      default: {
+        ...currentDefaultProfile,
+        model: normalizedModel,
+      },
+    },
+  };
 
   return nextConfig;
 }

@@ -322,8 +322,10 @@ describe("dashboard read model", () => {
       activeCount: 1,
       failedCount: 1,
       workerCount: 2,
+      onlineWorkerCount: 1,
       offlineWorkerCount: 1,
     });
+    expect(snapshot.services.workerRunning).toBe(true);
     expect(snapshot.selectedRunId).toBe(inboxRun.id);
     expect(snapshot.selectedRun?.id).toBe(inboxRun.id);
     expect(snapshot.selectedRun?.status).toBe("awaiting_publish_approval");
@@ -607,7 +609,13 @@ function makeSnapshot(
       activeCount: 1,
       failedCount: 1,
       workerCount: 1,
+      onlineWorkerCount: 1,
       offlineWorkerCount: 0,
+    },
+    services: {
+      workerRunning: true,
+      serverRunning: true,
+      serverUrl: "http://127.0.0.1:8787/health",
     },
     workers: [
       {

@@ -122,12 +122,15 @@ program
     }
 
     let nextManagedValues = managedValues;
+    let selectedSharedModel: string = defaultInitOrchestratorValues.sharedModel;
     if (shouldWriteEnv) {
       if (interactive) {
-        nextManagedValues = await promptInstallEnv(
+        const promptResult = await promptInstallEnv(
           managedValues,
           hadPriorEnvOnDisk,
         );
+        nextManagedValues = promptResult.values;
+        selectedSharedModel = promptResult.sharedModel;
       }
 
       await mkdir(dirname(envPath), { recursive: true });
@@ -168,7 +171,10 @@ program
 
     if (shouldWriteOrchestratorConfig) {
       const nextOrchestratorValues = interactive
-        ? await promptInitOrchestratorValues(orchestratorConfigState.values)
+        ? await promptInitOrchestratorValues(
+            orchestratorConfigState.values,
+            selectedSharedModel,
+          )
         : orchestratorConfigState.values;
       const nextOrchestratorConfig = mergeInitOrchestratorConfig(
         orchestratorConfigState.rawConfig,
@@ -933,6 +939,21 @@ async function promptInstallEnv(
       )
     : currentOpenRouterKey;
 
+  const sharedModel = guardPrompt(
+    await p.select({
+      message:
+        "Choose the default OpenRouter model for planner/executor/reviewer (editable later in orchestrator.yml)",
+      initialValue: "openai/gpt-5.4-mini",
+      options: [
+        { value: "openai/gpt-5.4-mini", label: "openai/gpt-5.4-mini", hint: "default balanced choice" },
+        { value: "openai/gpt-5.4", label: "openai/gpt-5.4", hint: "stronger reasoning, higher cost" },
+        { value: "anthropic/claude-3.7-sonnet", label: "anthropic/claude-3.7-sonnet", hint: "good coding reviewer profile" },
+        { value: "google/gemini-2.5-pro", label: "google/gemini-2.5-pro", hint: "broad capabilities" },
+        { value: "meta-llama/llama-4-maverick", label: "meta-llama/llama-4-maverick", hint: "alternative open model" },
+      ],
+    }),
+  );
+
   const configureJira = guardPrompt(
     await p.confirm({
       message: "Configure Jira now?",
@@ -1026,20 +1047,26 @@ async function promptInstallEnv(
       };
 
   return {
-    ...current,
-    DATABASE_URL: databaseUrl,
-    ARCHE_CONFIG_PATH: configPath,
-    ARCHE_RUNTIME_ROOT: runtimeRoot,
-    ARCHE_SERVER_HOST: current.ARCHE_SERVER_HOST,
-    ARCHE_SERVER_AUTH_TOKEN: serverAuthToken,
-    ARCHE_LOG_LEVEL: logLevel,
-    [USER_OPENROUTER_API_KEY_ENV]: openRouterApiKey,
-    ...jiraValues,
-    ...gitlabValues,
+    values: {
+      ...current,
+      DATABASE_URL: databaseUrl,
+      ARCHE_CONFIG_PATH: configPath,
+      ARCHE_RUNTIME_ROOT: runtimeRoot,
+      ARCHE_SERVER_HOST: current.ARCHE_SERVER_HOST,
+      ARCHE_SERVER_AUTH_TOKEN: serverAuthToken,
+      ARCHE_LOG_LEVEL: logLevel,
+      [USER_OPENROUTER_API_KEY_ENV]: openRouterApiKey,
+      ...jiraValues,
+      ...gitlabValues,
+    },
+    sharedModel,
   };
 }
 
-async function promptInitOrchestratorValues(current: InitOrchestratorValues) {
+async function promptInitOrchestratorValues(
+  current: InitOrchestratorValues,
+  selectedSharedModel: string,
+) {
   p.note(
     [
       "These values are stored in orchestrator.yml.",
@@ -1061,6 +1088,7 @@ async function promptInitOrchestratorValues(current: InitOrchestratorValues) {
 
   return {
     branchPrefix,
+    sharedModel: selectedSharedModel || current.sharedModel,
   };
 }
 

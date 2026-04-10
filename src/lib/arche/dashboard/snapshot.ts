@@ -66,13 +66,21 @@ export type DashboardSummary = {
   activeCount: number;
   failedCount: number;
   workerCount: number;
+  onlineWorkerCount: number;
   offlineWorkerCount: number;
+};
+
+export type DashboardServiceStatus = {
+  workerRunning: boolean;
+  serverRunning: boolean;
+  serverUrl: string;
 };
 
 export type DashboardSnapshot = {
   refreshedAt: string;
   offlineThresholdMs: number;
   summary: DashboardSummary;
+  services: DashboardServiceStatus;
   workers: DashboardWorker[];
   selectedWorkerId: string | null;
   selectedWorker: DashboardWorker | null;
@@ -126,6 +134,10 @@ export async function getDashboardSnapshot(options: {
   const config = await getConfig();
   const nowMs = options.nowMs ?? Date.now();
   const offlineThresholdMs = Math.max(5_000, config.worker.poll_interval_seconds * 3_000);
+  const serverHost = process.env.ARCHE_SERVER_HOST?.trim() || "127.0.0.1";
+  const serverPort = Number(process.env.ARCHE_SERVER_PORT || "8787");
+  const serverUrl = `http://${serverHost}:${Number.isFinite(serverPort) ? serverPort : 8787}/health`;
+  const serverRunning = await probeServerHealth(serverUrl);
 
   const [workerRows, runRows] = await Promise.all([
     db.select().from(workers).orderBy(desc(workers.lastHeartbeatAt), asc(workers.id)),
@@ -144,6 +156,7 @@ export async function getDashboardSnapshot(options: {
       }
       return (left.heartbeatAgeMs ?? Number.MAX_SAFE_INTEGER) - (right.heartbeatAgeMs ?? Number.MAX_SAFE_INTEGER);
     });
+  const onlineWorkerCount = dashboardWorkers.filter((worker) => !worker.offline).length;
   const workerById = new Map(dashboardWorkers.map((worker) => [worker.id, worker]));
 
   const inboxRows = runRows.filter((run) => INBOX_STATUSES.has(run.status));
@@ -210,7 +223,13 @@ export async function getDashboardSnapshot(options: {
       activeCount: activeRows.length,
       failedCount: runRows.filter((run) => FAILED_STATUSES.has(run.status)).length,
       workerCount: dashboardWorkers.length,
+      onlineWorkerCount,
       offlineWorkerCount: dashboardWorkers.filter((worker) => worker.offline).length,
+    },
+    services: {
+      workerRunning: onlineWorkerCount > 0,
+      serverRunning,
+      serverUrl,
     },
     workers: dashboardWorkers,
     selectedWorkerId: selectedWorker?.id ?? null,
@@ -234,6 +253,15 @@ export async function getDashboardSnapshot(options: {
       tasks: presentTasks,
     }),
   };
+}
+
+async function probeServerHealth(serverUrl: string) {
+  try {
+    const response = await fetch(serverUrl, { signal: AbortSignal.timeout(500) });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 function resolveSelectedRunRow(runRows: RunRow[], selectedRunId: string | null | undefined) {
