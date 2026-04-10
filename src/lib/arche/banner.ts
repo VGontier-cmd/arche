@@ -17,7 +17,7 @@ export function printArcheBanner(stream: NodeJS.WritableStream = process.stderr)
     return;
   }
 
-  stream.write(`${ARCHE_BANNER}\n`);
+  stream.write(`${ARCHE_BANNER}\n\n`);
   bannerPrinted = true;
 }
 

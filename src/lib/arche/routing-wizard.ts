@@ -183,7 +183,7 @@ export async function runSetupWizard() {
       `Policy hints from orchestrator.yml: label “${config.policy.required_label}”, type(s) ${config.policy.allowed_issue_types.join(", ")}.`,
       "Leave rule fields empty where you want a wildcard (where policy allows).",
     ].join("\n"),
-    "Setup wizard",
+    "Overview",
   );
 
   const repoFields = await promptRepositoryFields(config);

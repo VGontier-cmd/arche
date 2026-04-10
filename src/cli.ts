@@ -103,7 +103,7 @@ program
     let shouldWriteEnv = !hasExistingProjectEnv || Boolean(options.force);
 
     if (interactive) {
-      p.intro("Arche setup");
+      p.intro("Initialize Arche");
     }
 
     if (hasExistingProjectEnv && !options.force) {
