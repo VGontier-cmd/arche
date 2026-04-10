@@ -7,11 +7,12 @@
 ARCHE_CLI ?= node dist/cli.js
 
 .PHONY: help install build check test dev dev-server dev-worker dev-dashboard \
-	ensure-dist serve-dist worker-dist dashboard-dist run dev-dist
+	ensure-dist serve-dist worker-dist dashboard-dist run dev-dist install-prereqs
 
 help:
 	@echo "Arche Makefile"
 	@echo ""
+	@echo "  make install-prereqs  git / Node 22+ / Docker (see scripts/install-host-prereqs.sh)"
 	@echo "  make install         npm install"
 	@echo "  make build           Production bundle (tsup → dist/)"
 	@echo "  make check           eslint + tsc --noEmit"
@@ -29,6 +30,9 @@ help:
 	@echo "  make worker-dist     \`worker\` only"
 	@echo "  make dashboard-dist  \`dashboard\` only"
 	@echo "  Tip: after \`npm install -g .\` use   make run ARCHE_CLI=arche"
+
+install-prereqs:
+	bash scripts/install-host-prereqs.sh
 
 install:
 	npm install

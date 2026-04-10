@@ -30,6 +30,7 @@ import {
   type InitOrchestratorValues,
   type InstallEnvValues,
 } from "./lib/install";
+import { runInitHostPrereqsFlow } from "./lib/install/host-prereqs";
 
 function archePackageRootDir(): string {
   return join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -68,7 +69,16 @@ program
   )
   .option("--yes", "skip prompts and accept inferred defaults")
   .option("--force", "overwrite existing .arche/environment")
-  .action(async (options: { yes?: boolean; force?: boolean }) => {
+  .option(
+    "--skip-host-prereqs",
+    "skip Git / Node 22+ / Docker check and optional installer",
+  )
+  .action(
+    async (options: {
+      yes?: boolean;
+      force?: boolean;
+      skipHostPrereqs?: boolean;
+    }) => {
     printArcheBanner();
 
     const envPath = resolveArcheProjectEnvPath();
@@ -195,6 +205,10 @@ program
       }
     } else if (interactive) {
       p.note(orchestratorPath, "Using existing orchestrator config");
+    }
+
+    if (interactive && !options.skipHostPrereqs) {
+      await runInitHostPrereqsFlow();
     }
 
     const spinner = interactive ? p.spinner() : null;

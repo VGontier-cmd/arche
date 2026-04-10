@@ -6,6 +6,7 @@
   "files": [
     "dist",
     "install",
+    "scripts",
     "README.md",
     "orchestrator.yml",
     "docker-compose.yml",
@@ -24,7 +25,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "npm run lint && npm run typecheck"
+    "check": "npm run lint && npm run typecheck",
+    "install-prereqs": "bash scripts/install-host-prereqs.sh"
   },
   "dependencies": {
     "@clack/prompts": "^1.1.0",

@@ -18,9 +18,16 @@ const archeInternalManagedKeys = [
 
 const userOpenRouterKeys = [USER_OPENROUTER_API_KEY_ENV] as const;
 
-const userGitIdentityKeys = ["USER_GIT_AUTHOR_NAME", "USER_GIT_AUTHOR_EMAIL"] as const;
+const userGitIdentityKeys = [
+  "USER_GIT_AUTHOR_NAME",
+  "USER_GIT_AUTHOR_EMAIL",
+] as const;
 
-const userJiraKeys = ["USER_JIRA_BASE_URL", "USER_JIRA_EMAIL", "USER_JIRA_API_TOKEN"] as const;
+const userJiraKeys = [
+  "USER_JIRA_BASE_URL",
+  "USER_JIRA_EMAIL",
+  "USER_JIRA_API_TOKEN",
+] as const;
 
 const userGitlabKeys = ["USER_GITLAB_BASE_URL", "USER_GITLAB_TOKEN"] as const;
 
@@ -35,7 +42,10 @@ const userManagedKeys = [
   ...userGithubKeys,
 ] as const;
 
-export const managedEnvKeys = [...archeInternalManagedKeys, ...userManagedKeys] as const;
+export const managedEnvKeys = [
+  ...archeInternalManagedKeys,
+  ...userManagedKeys,
+] as const;
 
 export type ManagedEnvKey = (typeof managedEnvKeys)[number];
 export type InstallEnvValues = Record<ManagedEnvKey, string>;
@@ -169,9 +179,15 @@ export async function readInitOrchestratorConfig(path: string): Promise<{
     const parsed = parseYaml(raw);
     const rawConfig = isObjectRecord(parsed) ? parsed : {};
     const git = isObjectRecord(rawConfig.git) ? rawConfig.git : {};
-    const executors = isObjectRecord(rawConfig.executors) ? rawConfig.executors : {};
-    const profiles = isObjectRecord(executors.profiles) ? executors.profiles : {};
-    const defaultProfile = isObjectRecord(profiles.default) ? profiles.default : {};
+    const executors = isObjectRecord(rawConfig.executors)
+      ? rawConfig.executors
+      : {};
+    const profiles = isObjectRecord(executors.profiles)
+      ? executors.profiles
+      : {};
+    const defaultProfile = isObjectRecord(profiles.default)
+      ? profiles.default
+      : {};
     return {
       rawConfig,
       values: {
@@ -206,8 +222,12 @@ export function resolveArcheProjectEnvPath(cwd = process.cwd()): string {
 }
 
 /** True when the parsed env file has at least one non-empty value (whitespace-only counts as empty). */
-export function envFileHasNonEmptyValues(parsed: Record<string, string>): boolean {
-  return Object.values(parsed).some((v) => v !== undefined && String(v).trim() !== "");
+export function envFileHasNonEmptyValues(
+  parsed: Record<string, string>,
+): boolean {
+  return Object.values(parsed).some(
+    (v) => v !== undefined && String(v).trim() !== "",
+  );
 }
 
 export function resolveInstallEnvValues(input: {
@@ -231,11 +251,15 @@ export function preserveUnmanagedEnvValues(input: {
   exampleValues?: Record<string, string>;
   existingValues?: Record<string, string>;
 }) {
-  const source = hasKeys(input.existingValues) ? input.existingValues : input.exampleValues;
+  const source = hasKeys(input.existingValues)
+    ? input.existingValues
+    : input.exampleValues;
   if (!source) return {};
 
   return Object.fromEntries(
-    Object.entries(source).filter(([key]) => !managedEnvKeys.includes(key as ManagedEnvKey)),
+    Object.entries(source).filter(
+      ([key]) => !managedEnvKeys.includes(key as ManagedEnvKey),
+    ),
   );
 }
 
@@ -252,7 +276,10 @@ export function mergeInitOrchestratorConfig(
   values: InitOrchestratorValues,
 ) {
   const nextConfig: Record<string, unknown> = {
-    ...(structuredClone(defaultInitOrchestratorConfig) as Record<string, unknown>),
+    ...(structuredClone(defaultInitOrchestratorConfig) as Record<
+      string,
+      unknown
+    >),
     ...rawConfig,
   };
   const nextGit = {
@@ -260,14 +287,23 @@ export function mergeInitOrchestratorConfig(
     branch_prefix: normalizeBranchPrefix(values.branchPrefix),
   };
   nextConfig.git = nextGit;
-  const currentExecutors = isObjectRecord(rawConfig.executors) ? rawConfig.executors : {};
-  const currentProfiles = isObjectRecord(currentExecutors.profiles) ? currentExecutors.profiles : {};
-  const currentDefaultProfile = isObjectRecord(currentProfiles.default) ? currentProfiles.default : {};
-  const normalizedModel = values.sharedModel.trim() || defaultInitOrchestratorValues.sharedModel;
+  const currentExecutors = isObjectRecord(rawConfig.executors)
+    ? rawConfig.executors
+    : {};
+  const currentProfiles = isObjectRecord(currentExecutors.profiles)
+    ? currentExecutors.profiles
+    : {};
+  const currentDefaultProfile = isObjectRecord(currentProfiles.default)
+    ? currentProfiles.default
+    : {};
+  const normalizedModel =
+    values.sharedModel.trim() || defaultInitOrchestratorValues.sharedModel;
   nextConfig.executors = {
     ...(isObjectRecord(nextConfig.executors) ? nextConfig.executors : {}),
     profiles: {
-      ...(isObjectRecord(currentExecutors.profiles) ? currentExecutors.profiles : {}),
+      ...(isObjectRecord(currentExecutors.profiles)
+        ? currentExecutors.profiles
+        : {}),
       default: {
         ...currentDefaultProfile,
         model: normalizedModel,
@@ -278,28 +314,48 @@ export function mergeInitOrchestratorConfig(
   return nextConfig;
 }
 
-export async function writeInstallEnvFile(path: string, values: InstallEnvValues, preserved: Record<string, string>) {
+export async function writeInstallEnvFile(
+  path: string,
+  values: InstallEnvValues,
+  preserved: Record<string, string>,
+) {
   const content = renderInstallEnvFile(values, preserved);
   await writeFile(path, content, "utf8");
 }
 
-export async function writeInitOrchestratorConfig(path: string, config: Record<string, unknown>) {
+export async function writeInitOrchestratorConfig(
+  path: string,
+  config: Record<string, unknown>,
+) {
   await writeFile(path, stringifyYaml(config), "utf8");
 }
 
-function renderKeyBlock(lines: string[], keys: readonly string[], values: InstallEnvValues) {
+function renderKeyBlock(
+  lines: string[],
+  keys: readonly string[],
+  values: InstallEnvValues,
+) {
   for (const key of keys) {
     lines.push(`${key}=${formatEnvValue(values[key as ManagedEnvKey])}`);
   }
 }
 
-export function renderInstallEnvFile(values: InstallEnvValues, preserved: Record<string, string> = {}) {
+export function renderInstallEnvFile(
+  values: InstallEnvValues,
+  preserved: Record<string, string> = {},
+) {
   const lines: string[] = ["# Arche environment"];
 
-  lines.push("", "# Internal — runtime and Arche services (DATABASE_URL + ARCHE_*)");
+  lines.push(
+    "",
+    "# Internal — runtime and Arche services (DATABASE_URL + ARCHE_*)",
+  );
   renderKeyBlock(lines, archeInternalManagedKeys, values);
 
-  lines.push("", "# User — OpenRouter API key (https://openrouter.ai — set api_key_env on executors.profiles)");
+  lines.push(
+    "",
+    "# User — OpenRouter API key (https://openrouter.ai — set api_key_env on executors.profiles)",
+  );
   renderKeyBlock(lines, userOpenRouterKeys, values);
 
   lines.push("", "# User — Git identity for automated commits");
@@ -308,10 +364,16 @@ export function renderInstallEnvFile(values: InstallEnvValues, preserved: Record
   lines.push("", "# User — Jira API");
   renderKeyBlock(lines, userJiraKeys, values);
 
-  lines.push("", "# User — GitLab (optional — API + HTTPS Git when repo URL matches GitLab base)");
+  lines.push(
+    "",
+    "# User — GitLab (optional — API + HTTPS Git when repo URL matches GitLab base)",
+  );
   renderKeyBlock(lines, userGitlabKeys, values);
 
-  lines.push("", "# User — GitHub.com HTTPS Git (optional — private repos on github.com)");
+  lines.push(
+    "",
+    "# User — GitHub.com HTTPS Git (optional — private repos on github.com)",
+  );
   renderKeyBlock(lines, userGithubKeys, values);
 
   const preservedEntries = Object.entries(preserved);
@@ -331,7 +393,9 @@ export function applyEnvToProcess(values: Record<string, string>) {
   }
 }
 
-function pickManagedOverrides(input?: Partial<Record<string, string | undefined>>) {
+function pickManagedOverrides(
+  input?: Partial<Record<string, string | undefined>>,
+) {
   const values: Partial<InstallEnvValues> = {};
 
   for (const key of managedEnvKeys) {

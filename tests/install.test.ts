@@ -24,7 +24,9 @@ describe("resolveInstallEnvValues", () => {
 
     expect(values.ARCHE_RUNTIME_ROOT).toBe("/srv/arche");
     expect(values.DATABASE_URL).toBe("/srv/arche/arche.db");
-    expect(values.ARCHE_CONFIG_PATH).toBe(defaultInstallEnvValues.ARCHE_CONFIG_PATH);
+    expect(values.ARCHE_CONFIG_PATH).toBe(
+      defaultInstallEnvValues.ARCHE_CONFIG_PATH,
+    );
   });
 
   it("prefers existing database paths when already customized", () => {
@@ -54,7 +56,9 @@ describe("envFileHasNonEmptyValues", () => {
 
 describe("resolveArcheProjectEnvPath", () => {
   it("resolves under .arche in the given cwd", () => {
-    expect(resolveArcheProjectEnvPath("/tmp/ws")).toBe(join("/tmp/ws", ".arche/environment"));
+    expect(resolveArcheProjectEnvPath("/tmp/ws")).toBe(
+      join("/tmp/ws", ".arche/environment"),
+    );
   });
 });
 

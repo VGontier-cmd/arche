@@ -73,7 +73,10 @@ export class JiraClient {
     );
 
     if (response.status === 404) {
-      throw new NotFoundError(`Jira issue ${issueKey} not found`);
+      const site = env.USER_JIRA_BASE_URL!.replace(/\/$/, "");
+      throw new NotFoundError(
+        `Jira issue ${issueKey} not found (404). Site: ${site}. Check the key exists on this instance, USER_JIRA_BASE_URL matches that site, and the API user can browse the project.`,
+      );
     }
     if (!response.ok) {
       throw new ExternalServiceError(`Jira issue fetch failed: ${response.status} ${await response.text()}`);
