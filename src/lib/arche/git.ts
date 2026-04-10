@@ -5,6 +5,7 @@ import { constants } from "node:fs";
 import type { OrchestratorConfig } from "../config";
 import type { RepositoryRow } from "../db/schema";
 import { env } from "../env";
+import { resolveAuthenticatedRemoteUrl } from "./git-remote-auth";
 import { ExternalServiceError } from "./errors";
 import type { JiraIssue } from "./types";
 import {
@@ -83,6 +84,7 @@ export class GitManager {
 
   async ensureLocalClone(repository: RepositoryRow) {
     await ensureDirectory(dirname(repository.localMirrorPath));
+    const authRemote = resolveAuthenticatedRemoteUrl(repository.remoteUrl);
     let cloned = true;
     try {
       await access(resolve(repository.localMirrorPath, ".git"), constants.F_OK);
@@ -90,10 +92,21 @@ export class GitManager {
       cloned = false;
     }
     if (!cloned) {
-      const clone = await runCommand("git", ["clone", repository.remoteUrl, repository.localMirrorPath]);
+      const clone = await runCommand("git", ["clone", authRemote, repository.localMirrorPath]);
       if (clone.returncode !== 0) {
         throw new ExternalServiceError(clone.stderr || "Repository clone failed");
       }
+    }
+    const setUrl = await runCommand("git", [
+      "-C",
+      repository.localMirrorPath,
+      "remote",
+      "set-url",
+      "origin",
+      authRemote,
+    ]);
+    if (setUrl.returncode !== 0) {
+      throw new ExternalServiceError(setUrl.stderr || "Git remote set-url failed");
     }
     const fetchResult = await runCommand("git", ["-C", repository.localMirrorPath, "fetch", "origin"]);
     if (fetchResult.returncode !== 0) {

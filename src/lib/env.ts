@@ -28,6 +28,8 @@ const envSchema = z.object({
   USER_JIRA_API_TOKEN: z.string().optional(),
   USER_GITLAB_BASE_URL: z.string().url().optional(),
   USER_GITLAB_TOKEN: z.string().optional(),
+  /** Optional PAT for HTTPS Git to github.com (username "x-access-token"); DB keeps clean URLs. */
+  USER_GITHUB_TOKEN: z.string().optional(),
   ARCHE_RUNTIME_ROOT: z.string().default("./runtime"),
   ARCHE_LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 });
@@ -52,6 +54,7 @@ export const env =
     USER_JIRA_API_TOKEN: readEnvValue("USER_JIRA_API_TOKEN"),
     USER_GITLAB_BASE_URL: readEnvValue("USER_GITLAB_BASE_URL"),
     USER_GITLAB_TOKEN: readEnvValue("USER_GITLAB_TOKEN"),
+    USER_GITHUB_TOKEN: readEnvValue("USER_GITHUB_TOKEN"),
     ARCHE_RUNTIME_ROOT: readEnvValue("ARCHE_RUNTIME_ROOT"),
     ARCHE_LOG_LEVEL: readEnvValue("ARCHE_LOG_LEVEL"),
   });

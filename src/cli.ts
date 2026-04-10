@@ -1024,26 +1024,58 @@ async function promptInstallEnv(
   );
 
   const gitlabValues = configureGitLab
-    ? {
-        USER_GITLAB_BASE_URL: guardPrompt(
+    ? await (async () => {
+        const baseUrl = guardPrompt(
           await p.text({
             message: "GitLab base URL",
             initialValue: current.USER_GITLAB_BASE_URL,
             placeholder: "https://gitlab.example.com",
             validate: validateUrl,
           }),
-        ),
-        USER_GITLAB_TOKEN: guardPrompt(
+        );
+        p.note(
+          [
+            "Same token is used for GitLab REST API (e.g. merge requests) and for git clone/fetch/push",
+            "over HTTPS when the repository remote URL matches this base URL (no token in the DB).",
+          ].join("\n"),
+          "GitLab token",
+        );
+        const token = guardPrompt(
           await p.password({
-            message: "GitLab token",
+            message: "GitLab token (API + private Git HTTPS)",
+            mask: "*",
+            validate: validateRequired,
+          }),
+        );
+        return {
+          USER_GITLAB_BASE_URL: baseUrl,
+          USER_GITLAB_TOKEN: token,
+        };
+      })()
+    : {
+        USER_GITLAB_BASE_URL: "",
+        USER_GITLAB_TOKEN: "",
+      };
+
+  const configureGitHub = guardPrompt(
+    await p.confirm({
+      message: "Configure a GitHub.com token for private HTTPS Git (optional)?",
+      initialValue: Boolean(current.USER_GITHUB_TOKEN?.trim()),
+    }),
+  );
+
+  const githubValues = configureGitHub
+    ? {
+        USER_GITHUB_TOKEN: guardPrompt(
+          await p.password({
+            message: "GitHub personal access token (repo scope for private clone/push)",
             mask: "*",
             validate: validateRequired,
           }),
         ),
       }
     : {
-        USER_GITLAB_BASE_URL: "",
-        USER_GITLAB_TOKEN: "",
+        USER_GITHUB_TOKEN: "",
       };
 
   return {
@@ -1058,6 +1090,7 @@ async function promptInstallEnv(
       [USER_OPENROUTER_API_KEY_ENV]: openRouterApiKey,
       ...jiraValues,
       ...gitlabValues,
+      ...githubValues,
     },
     sharedModel,
   };

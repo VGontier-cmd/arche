@@ -24,11 +24,15 @@ const userJiraKeys = ["USER_JIRA_BASE_URL", "USER_JIRA_EMAIL", "USER_JIRA_API_TO
 
 const userGitlabKeys = ["USER_GITLAB_BASE_URL", "USER_GITLAB_TOKEN"] as const;
 
+/** PAT for `https://github.com/...` clone/push; optional. */
+const userGithubKeys = ["USER_GITHUB_TOKEN"] as const;
+
 const userManagedKeys = [
   ...userOpenRouterKeys,
   ...userGitIdentityKeys,
   ...userJiraKeys,
   ...userGitlabKeys,
+  ...userGithubKeys,
 ] as const;
 
 export const managedEnvKeys = [...archeInternalManagedKeys, ...userManagedKeys] as const;
@@ -55,6 +59,7 @@ export const defaultInstallEnvValues: InstallEnvValues = {
   USER_JIRA_API_TOKEN: "",
   USER_GITLAB_BASE_URL: "",
   USER_GITLAB_TOKEN: "",
+  USER_GITHUB_TOKEN: "",
 };
 
 export const defaultInitOrchestratorValues = {
@@ -303,8 +308,11 @@ export function renderInstallEnvFile(values: InstallEnvValues, preserved: Record
   lines.push("", "# User — Jira API");
   renderKeyBlock(lines, userJiraKeys, values);
 
-  lines.push("", "# User — GitLab (optional)");
+  lines.push("", "# User — GitLab (optional — API + HTTPS Git when repo URL matches GitLab base)");
   renderKeyBlock(lines, userGitlabKeys, values);
+
+  lines.push("", "# User — GitHub.com HTTPS Git (optional — private repos on github.com)");
+  renderKeyBlock(lines, userGithubKeys, values);
 
   const preservedEntries = Object.entries(preserved);
   if (preservedEntries.length > 0) {

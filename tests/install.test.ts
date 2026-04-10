@@ -90,6 +90,8 @@ describe("renderInstallEnvFile", () => {
     expect(output).toContain("# User — Jira");
     expect(output).toContain('USER_JIRA_BASE_URL=""');
     expect(output).toContain("# User — GitLab");
+    expect(output).toContain("USER_GITHUB_TOKEN");
+    expect(output).toContain("# User — GitHub.com HTTPS Git");
     expect(output).toContain("# User — additional variables");
     expect(output).toContain("EXTRA_SERVICE_TOKEN=change-me");
   });
