@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 export type ProjectSummary = {
   key: string;
   total: number;
@@ -8,12 +10,14 @@ export type ProjectSummary = {
 };
 
 export type DashboardLayout = {
-  header: string;
-  left: string;
+  header: ReactNode;
+  metricsRow: ReactNode;
+  hostMetricsRow: ReactNode | null;
+  left: ReactNode;
   detailLabel: string;
-  detail: string;
-  timeline: string;
-  footer: string;
+  detail: ReactNode;
+  timeline: ReactNode;
+  footer: ReactNode;
   modalTitle: string | null;
-  modalBody: string | null;
+  modalBody: ReactNode | null;
 };

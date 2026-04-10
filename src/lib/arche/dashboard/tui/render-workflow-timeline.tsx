@@ -1,62 +1,88 @@
+import { Text } from "ink";
+import { Fragment } from "react";
+import type { ReactNode } from "react";
+
 import type { DashboardSnapshot } from "../snapshot";
 
-import { FAILED_RUN_STATUSES, PAL } from "./theme";
+import { FAILED_RUN_STATUSES, PAL, SUCCESS_RUN_STATUS } from "./theme";
 import {
-  formatWorkflowStateBadge,
-  stripBlessedTags,
-  tDimWhite,
-  tItalicGrey,
-  truncateUnicode,
-} from "./text-format";
+  formatWorkflowStateBadgeInk,
+  tDimWhiteInk,
+  tItalicGreyInk,
+} from "./ink-styled";
+import { truncateUnicode } from "./text-format";
 import { formatTimestamp } from "./tui-helpers";
 
-export function timelineSourceTag(
+export function timelineSourceTagInk(
   source: DashboardSnapshot["timeline"][number]["source"],
-): string {
+): ReactNode {
   if (source === "event") {
-    return `{${PAL.active}-fg}{bold}[event]{/}`;
+    return (
+      <Text color={PAL.active} bold>
+        [event]
+      </Text>
+    );
   }
   if (source === "log" || source === "message") {
-    return `{${PAL.grey}-fg}[log]{/}`;
+    return <Text color={PAL.grey}>[log]</Text>;
   }
-  return `{${PAL.branchBlue}-fg}[system]{/}`;
+  return <Text color={PAL.branchBlue}>[system]</Text>;
 }
 
-export function renderTimelinePane(snapshot: DashboardSnapshot, maxWidth: number) {
+export function renderTimelinePaneInk(
+  snapshot: DashboardSnapshot,
+  maxWidth: number,
+  scrollOffset: number,
+  maxLines: number,
+) {
   if (snapshot.timeline.length === 0) {
-    return `{${PAL.dimWhite}-fg}No timeline entries for the selected run.{/}`;
+    return <Text color={PAL.dimWhite}>No timeline entries for the selected run.</Text>;
   }
 
   const inner = Math.max(8, maxWidth - 4);
-  const lines: string[] = [];
+  const rows: ReactNode[] = [];
 
   for (const item of snapshot.timeline) {
-    const ts = tItalicGrey(formatTimestamp(item.timestamp));
-    const tag = timelineSourceTag(item.source);
-    const titlePlain = stripBlessedTags(item.title);
+    const ts = tItalicGreyInk(formatTimestamp(item.timestamp));
+    const tag = timelineSourceTagInk(item.source);
+    const titlePlain = item.title;
     const headPlainLen =
-      stripBlessedTags(formatTimestamp(item.timestamp)).length +
+      formatTimestamp(item.timestamp).length +
       1 +
-      stripBlessedTags(tag).length +
+      (item.source === "event" ? 7 : item.source === "log" || item.source === "message" ? 5 : 8) +
       1;
     const titleBudget = Math.max(8, inner - headPlainLen);
-    const titleColored = `{${PAL.white}-fg}${truncateUnicode(titlePlain, titleBudget)}{/}`;
-    lines.push(`${ts}  ${tag}  ${titleColored}`);
+    rows.push(
+      <Text key={`${item.timestamp}-${titlePlain}-h`}>
+        {ts} {tag}{" "}
+        <Text color={PAL.white}>{truncateUnicode(titlePlain, titleBudget)}</Text>
+      </Text>,
+    );
 
     if (item.detail) {
-      lines.push(
-        `  ${tDimWhite(truncateUnicode(item.detail, inner - 2, "…"))}`,
+      rows.push(
+        <Text key={`${item.timestamp}-${titlePlain}-d`}>
+          {"  "}
+          {tDimWhiteInk(truncateUnicode(item.detail, inner - 2, "…"))}
+        </Text>,
       );
     }
   }
 
-  return lines.join("\n");
+  const window = rows.slice(scrollOffset, scrollOffset + Math.max(1, maxLines));
+  return (
+    <Fragment>
+      {window.map((row, i) => (
+        <Fragment key={i}>{row}</Fragment>
+      ))}
+    </Fragment>
+  );
 }
 
-export function renderWorkflowLane(snapshot: DashboardSnapshot) {
+export function renderWorkflowLaneInk(snapshot: DashboardSnapshot): ReactNode[] {
   const run = snapshot.selectedRun;
   if (!run) {
-    return [`  ${tDimWhite("No run selected.")}`];
+    return [<Text key="n"> {tDimWhiteInk("No run selected.")}</Text>];
   }
 
   const completedRoles = new Set(
@@ -75,7 +101,7 @@ export function renderWorkflowLane(snapshot: DashboardSnapshot) {
           (run.currentCycle ?? 0) > 0,
         currentRole: run.currentRole,
         currentStatus: run.status,
-        role: "planner",
+        role: "planner" as const,
         waitingStatus: "awaiting_plan_approval",
       }),
       detail: `${run.plannerProfile ?? "-"} / ${run.plannerDriver ?? "-"}`,
@@ -91,7 +117,7 @@ export function renderWorkflowLane(snapshot: DashboardSnapshot) {
           ),
         currentRole: run.currentRole,
         currentStatus: run.status,
-        role: "executor",
+        role: "executor" as const,
         waitingStatus: "needs_human_input",
       }),
       detail: `${run.executorProfile ?? "-"} / ${run.modelName ?? "-"}`,
@@ -108,10 +134,16 @@ export function renderWorkflowLane(snapshot: DashboardSnapshot) {
     },
   ];
 
-  return stages.map(
-    (stage) =>
-      `  {${PAL.white}-fg}{bold}${stage.label.padEnd(5, " ")}{/}  ${formatWorkflowStateBadge(stage.state)}  {${PAL.dimWhite}-fg}${stage.detail}{/}`,
-  );
+  return stages.map((stage) => (
+    <Text key={stage.label}>
+      {"  "}
+      <Text bold color={PAL.white}>
+        {stage.label.padEnd(5, " ")}
+      </Text>{" "}
+      {formatWorkflowStateBadgeInk(stage.state)}
+      <Text color={PAL.dimWhite}> {stage.detail}</Text>
+    </Text>
+  ));
 }
 
 function resolveRoleStageState(input: {
@@ -178,4 +210,31 @@ function resolvePublishStageState(status: string) {
     return "STOP";
   }
   return "WAIT";
+}
+
+export function runSectionIconInk(
+  kind: "inbox" | "active" | "recent",
+  status: string,
+): ReactNode {
+  if (kind === "inbox") {
+    return <Text color={PAL.inbox}>·</Text>;
+  }
+  if (kind === "active") {
+    return (
+      <Text color={PAL.active} bold>
+        ⟳
+      </Text>
+    );
+  }
+  if (status === SUCCESS_RUN_STATUS) {
+    return <Text color={PAL.done}>✓</Text>;
+  }
+  if (FAILED_RUN_STATUSES.has(status)) {
+    return (
+      <Text color={PAL.failedFg} bold>
+        ✗
+      </Text>
+    );
+  }
+  return <Text color={PAL.grey}>·</Text>;
 }

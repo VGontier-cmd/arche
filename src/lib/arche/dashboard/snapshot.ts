@@ -1,7 +1,8 @@
 import { asc, desc, eq } from "drizzle-orm";
 
-import { getConfig } from "../../config";
+import { getConfig, type OrchestratorConfig } from "../../config";
 import { db } from "../../db/client";
+import { readSecretEnv } from "../../env";
 import {
   runCommands,
   runEvents,
@@ -76,11 +77,25 @@ export type DashboardServiceStatus = {
   serverUrl: string;
 };
 
+/** Whether required process env vars are set (non-empty) for outbound integrations. */
+export type DashboardCredentialEnvStatus = {
+  /**
+   * All `api_key_env` values for executor profiles used by planner, executor, and reviewer.
+   * (Default setup targets OpenRouter via `USER_OPENROUTER_API_KEY`.)
+   */
+  openRouter: boolean;
+  /** `USER_GITLAB_BASE_URL` and `USER_GITLAB_TOKEN`. */
+  gitlab: boolean;
+  /** `USER_JIRA_BASE_URL`, `USER_JIRA_EMAIL`, and `USER_JIRA_API_TOKEN`. */
+  jira: boolean;
+};
+
 export type DashboardSnapshot = {
   refreshedAt: string;
   offlineThresholdMs: number;
   summary: DashboardSummary;
   services: DashboardServiceStatus;
+  credentialEnv: DashboardCredentialEnvStatus;
   workers: DashboardWorker[];
   selectedWorkerId: string | null;
   selectedWorker: DashboardWorker | null;
@@ -218,6 +233,7 @@ export async function getDashboardSnapshot(options: {
   return {
     refreshedAt: new Date(nowMs).toISOString(),
     offlineThresholdMs,
+    credentialEnv: deriveDashboardCredentialEnvStatus(config),
     summary: {
       inboxCount: inboxRows.length,
       activeCount: activeRows.length,
@@ -277,4 +293,29 @@ function pickDefaultRunId(
   recentRows: RunRow[],
 ) {
   return inboxRows[0]?.id ?? activeRows[0]?.id ?? recentRows[0]?.id ?? null;
+}
+
+function deriveDashboardCredentialEnvStatus(
+  config: OrchestratorConfig,
+): DashboardCredentialEnvStatus {
+  const keys = new Set<string>();
+  for (const role of ["planner", "executor", "reviewer"] as const) {
+    const profileName = config.executors.defaults[role];
+    const profile = config.executors.profiles[profileName];
+    if (profile) {
+      keys.add(profile.api_key_env);
+    }
+  }
+  const openRouter = [...keys].every((name) => readSecretEnv(name) !== null);
+
+  const gitlab =
+    readSecretEnv("USER_GITLAB_BASE_URL") !== null &&
+    readSecretEnv("USER_GITLAB_TOKEN") !== null;
+
+  const jira =
+    readSecretEnv("USER_JIRA_BASE_URL") !== null &&
+    readSecretEnv("USER_JIRA_EMAIL") !== null &&
+    readSecretEnv("USER_JIRA_API_TOKEN") !== null;
+
+  return { openRouter, gitlab, jira };
 }
