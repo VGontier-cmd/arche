@@ -793,15 +793,6 @@ async function promptInstallEnv(current: InstallEnvValues, hasExistingEnv: boole
 
   p.note(
     [
-      "Arche uses OpenRouter for models (HTTPS OpenAI-compatible API at https://openrouter.ai/api/v1).",
-      `Create a key at https://openrouter.ai/keys and set ${USER_OPENROUTER_API_KEY_ENV} here. orchestrator.yml maps api_key_env to that variable for the default profile.`,
-      "Git/Jira/GitLab entries in this file also use USER_*; Arche runtime paths use ARCHE_* and DATABASE_URL.",
-    ].join("\n"),
-    "OpenRouter",
-  );
-
-  p.note(
-    [
       `ARCHE_SERVER_HOST stays on ${current.ARCHE_SERVER_HOST} by default.`,
       "Keep 127.0.0.1 for local-only access.",
       "If you later expose Arche on 0.0.0.0 or another non-loopback host, configure ARCHE_SERVER_AUTH_TOKEN too.",
@@ -827,6 +818,15 @@ async function promptInstallEnv(current: InstallEnvValues, hasExistingEnv: boole
     : current.ARCHE_SERVER_AUTH_TOKEN;
 
   const currentOpenRouterKey = current[USER_OPENROUTER_API_KEY_ENV] ?? "";
+
+  p.note(
+    [
+      "Arche uses OpenRouter for models (HTTPS OpenAI-compatible API at https://openrouter.ai/api/v1).",
+      `Create a key at https://openrouter.ai/keys and set ${USER_OPENROUTER_API_KEY_ENV} here. orchestrator.yml maps api_key_env to that variable for the default profile.`,
+      "Git/Jira/GitLab entries in this file also use USER_*; Arche runtime paths use ARCHE_* and DATABASE_URL.",
+    ].join("\n"),
+    "OpenRouter",
+  );
 
   const updateOpenRouterApiKey = guardPrompt(
     await p.confirm({
