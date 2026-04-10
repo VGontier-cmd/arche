@@ -104,7 +104,41 @@ describe("normalizeBranchPrefix", () => {
 });
 
 describe("mergeInitOrchestratorConfig", () => {
-  it("stores branch prefix and optional default repository", () => {
+  it("produces a complete orchestrator config when starting from empty input", () => {
+    const config = mergeInitOrchestratorConfig(
+      {},
+      {
+        ...defaultInitOrchestratorValues,
+        branchPrefix: "arche/",
+      },
+    );
+
+    expect(config).toMatchObject({
+      runtime: {
+        root_dir: "./runtime",
+      },
+      worker: {
+        poll_interval_seconds: 5,
+      },
+      policy: {
+        assignee: "agent-dev",
+      },
+      sandbox: {
+        image: "arche-app:local",
+      },
+      defaults: {
+        validation_commands: [],
+      },
+      bootstrap: {
+        repositories: [],
+      },
+      git: {
+        branch_prefix: "arche/",
+      },
+    });
+  });
+
+  it("stores branch prefix without changing routing", () => {
     const config = mergeInitOrchestratorConfig(
       {
         workflow: {
@@ -114,7 +148,6 @@ describe("mergeInitOrchestratorConfig", () => {
       {
         ...defaultInitOrchestratorValues,
         branchPrefix: "arche/",
-        defaultRepository: "my-service",
       },
     );
 
@@ -125,34 +158,6 @@ describe("mergeInitOrchestratorConfig", () => {
       git: {
         branch_prefix: "arche/",
       },
-      routing: {
-        default_repository: "my-service",
-      },
     });
-  });
-
-  it("removes the routing fallback when the repository is blank", () => {
-    const config = mergeInitOrchestratorConfig(
-      {
-        routing: {
-          default_repository: "my-service",
-          keep: true,
-        },
-      },
-      {
-        branchPrefix: "jira/",
-        defaultRepository: "",
-      },
-    );
-
-    expect(config).toMatchObject({
-      git: {
-        branch_prefix: "jira/",
-      },
-      routing: {
-        keep: true,
-      },
-    });
-    expect((config.routing as { default_repository?: string }).default_repository).toBeUndefined();
   });
 });

@@ -42,7 +42,7 @@ const defaultRoutingConfig = {
 } as const;
 
 const defaultGitConfig = {
-  branch_prefix: "jira/",
+  branch_prefix: "arche/",
 } as const;
 
 const defaultExecutorProfile = {
@@ -180,7 +180,7 @@ export type ExecutorProfileConfig = z.infer<typeof executorProfileSchema>;
 export type ExecutorsConfig = z.infer<typeof executorsConfigSchema>;
 export type OrchestratorConfig = z.infer<typeof orchestratorConfigSchema>;
 
-const defaultConfig: OrchestratorConfig = {
+export const defaultConfig: OrchestratorConfig = {
   runtime: defaultRuntimeConfig,
   worker: {
     poll_interval_seconds: 5,

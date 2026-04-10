@@ -59,7 +59,7 @@ defaults:
 routing:
   default_repository: null
 git:
-  branch_prefix: jira/
+  branch_prefix: arche/
 workflow:
   mode: plan_execute_review
   max_review_cycles: 3

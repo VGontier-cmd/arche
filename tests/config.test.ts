@@ -47,7 +47,7 @@ describe("getConfig", () => {
       api_key_env: "USER_OPENROUTER_API_KEY",
     });
     expect(config.routing.default_repository).toBeNull();
-    expect(config.git.branch_prefix).toBe("jira/");
+    expect(config.git.branch_prefix).toBe("arche/");
     expect(config.runtime.root_dir).toBe(runtimeRoot);
   });
 

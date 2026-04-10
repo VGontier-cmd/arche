@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { access, mkdir } from "node:fs/promises";
 import { constants } from "node:fs";
+import { access, mkdir } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,17 +14,17 @@ import { createLogger } from "./lib/arche/logging";
 import {
   applyEnvToProcess,
   databaseUrlForRuntimeRoot,
-  defaultInstallEnvValues,
   defaultInitOrchestratorValues,
+  defaultInstallEnvValues,
   envFileHasNonEmptyValues,
   mergeInitOrchestratorConfig,
   normalizeBranchPrefix,
-  readInitOrchestratorConfig,
-  USER_OPENROUTER_API_KEY_ENV,
   preserveUnmanagedEnvValues,
   readEnvFile,
+  readInitOrchestratorConfig,
   resolveArcheProjectEnvPath,
   resolveInstallEnvValues,
+  USER_OPENROUTER_API_KEY_ENV,
   writeInitOrchestratorConfig,
   writeInstallEnvFile,
   type InitOrchestratorValues,
@@ -56,11 +56,16 @@ async function pathExists(path: string) {
 
 const program = new Command();
 
-program.name("arche").description("Arche self-hosted development agent orchestrator").version("0.1.0");
+program
+  .name("arche")
+  .description("Arche self-hosted development agent orchestrator")
+  .version("0.1.0");
 
 program
   .command("init")
-  .description("Initialize runtime directories and project environment (.arche/environment)")
+  .description(
+    "Initialize runtime directories and project environment (.arche/environment)",
+  )
   .option("--yes", "skip prompts and accept inferred defaults")
   .option("--force", "overwrite existing .arche/environment")
   .action(async (options: { yes?: boolean; force?: boolean }) => {
@@ -70,17 +75,21 @@ program
     const legacyEnvPath = resolve(".env");
     const templatePath = bundledEnvTemplatePath();
     const hasExistingProjectEnv =
-      (await pathExists(envPath)) && envFileHasNonEmptyValues(await readEnvFile(envPath));
+      (await pathExists(envPath)) &&
+      envFileHasNonEmptyValues(await readEnvFile(envPath));
     const exampleValues = await readEnvFile(templatePath);
     const existingArche = await readEnvFile(envPath);
     const existingLegacy = await readEnvFile(legacyEnvPath);
     const existingValues = { ...existingLegacy, ...existingArche };
     const hadPriorEnvOnDisk =
-      envFileHasNonEmptyValues(existingArche) || envFileHasNonEmptyValues(existingLegacy);
+      envFileHasNonEmptyValues(existingArche) ||
+      envFileHasNonEmptyValues(existingLegacy);
     const managedValues = resolveInstallEnvValues({
       exampleValues,
       existingValues,
-      processValues: process.env as Partial<Record<keyof InstallEnvValues, string | undefined>>,
+      processValues: process.env as Partial<
+        Record<keyof InstallEnvValues, string | undefined>
+      >,
     });
     const preservedValues = preserveUnmanagedEnvValues({
       exampleValues,
@@ -88,7 +97,9 @@ program
     });
     const extraEnvValues = { ...preservedValues };
 
-    const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY && !options.yes);
+    const interactive = Boolean(
+      process.stdin.isTTY && process.stdout.isTTY && !options.yes,
+    );
     let shouldWriteEnv = !hasExistingProjectEnv || Boolean(options.force);
 
     if (interactive) {
@@ -113,7 +124,10 @@ program
     let nextManagedValues = managedValues;
     if (shouldWriteEnv) {
       if (interactive) {
-        nextManagedValues = await promptInstallEnv(managedValues, hadPriorEnvOnDisk);
+        nextManagedValues = await promptInstallEnv(
+          managedValues,
+          hadPriorEnvOnDisk,
+        );
       }
 
       await mkdir(dirname(envPath), { recursive: true });
@@ -137,13 +151,15 @@ program
 
     const orchestratorPath = resolve(nextManagedValues.ARCHE_CONFIG_PATH);
     const hasExistingOrchestratorConfig = await pathExists(orchestratorPath);
-    const orchestratorConfigState = await readInitOrchestratorConfig(orchestratorPath);
-    let shouldWriteOrchestratorConfig = !hasExistingOrchestratorConfig || Boolean(options.force);
+    const orchestratorConfigState =
+      await readInitOrchestratorConfig(orchestratorPath);
+    let shouldWriteOrchestratorConfig =
+      !hasExistingOrchestratorConfig || Boolean(options.force);
 
     if (interactive && hasExistingOrchestratorConfig && !options.force) {
       const updateOrchestratorConfig = guardPrompt(
         await p.confirm({
-          message: "Update branch prefix and default repository in orchestrator config now?",
+          message: "Update branch prefix in orchestrator config now?",
           initialValue: false,
         }),
       );
@@ -159,7 +175,10 @@ program
         nextOrchestratorValues,
       );
       await mkdir(dirname(orchestratorPath), { recursive: true });
-      await writeInitOrchestratorConfig(orchestratorPath, nextOrchestratorConfig);
+      await writeInitOrchestratorConfig(
+        orchestratorPath,
+        nextOrchestratorConfig,
+      );
       if (interactive) {
         p.note(orchestratorPath, "Wrote orchestrator config");
       } else {
@@ -198,6 +217,27 @@ program
         ].join("\n"),
         "Runtime",
       );
+      p.note(
+        [
+          "1) Validate local setup",
+          "   arche doctor",
+          "",
+          "2) Register a repository",
+          "   arche repositories add --name <repo> --remote-url <git-url> --local-mirror-path ./runtime/repos/<repo> [--gitlab-project-id <id>]",
+          "",
+          "3) Route Jira tickets to a repository",
+          "   arche repo-rules add --name <rule> --repository <repo> --jira-project-key <KEY> --label agent-ready --issue-type Bug",
+          "",
+          "4) Start services",
+          "   arche serve --port 8787",
+          "   arche worker",
+          "   arche dashboard",
+          "",
+          "5) Trigger a run manually",
+          "   arche runs manual <JIRA-KEY>",
+        ].join("\n"),
+        "Next steps",
+      );
       p.outro("Arche is ready.");
       return;
     }
@@ -214,7 +254,13 @@ program
   .action(async () => {
     printArcheBanner();
 
-    const [{ runCommand }, { ensureArcheReady }, { db }, { getConfig }, { listMissingExecutionProfileSecrets }] = await Promise.all([
+    const [
+      { runCommand },
+      { ensureArcheReady },
+      { db },
+      { getConfig },
+      { listMissingExecutionProfileSecrets },
+    ] = await Promise.all([
       import("./lib/arche/utils"),
       import("./lib/bootstrap"),
       import("./lib/db/client"),
@@ -264,7 +310,8 @@ program
           event: "cli.doctor.execution_profile_secrets_missing",
           details: {
             missingSecrets,
-            recommendation: "Set the missing API key environment variables referenced by executors.profiles",
+            recommendation:
+              "Set the missing API key environment variables referenced by executors.profiles",
           },
         });
       } else {
@@ -287,7 +334,10 @@ program
         });
       }
 
-      if (dockerSocketMounted && !isAbsolute(process.env.ARCHE_CONFIG_PATH ?? "")) {
+      if (
+        dockerSocketMounted &&
+        !isAbsolute(process.env.ARCHE_CONFIG_PATH ?? "")
+      ) {
         cliLogger.warn("cli", "relative config path with host docker socket", {
           event: "cli.doctor.config_path_relative",
           details: {
@@ -299,18 +349,26 @@ program
       }
 
       if (insideContainer && dockerSocketMounted) {
-        cliLogger.warn("cli", "containerized process is controlling host docker", {
-          event: "cli.doctor.container_host_docker_warning",
-          details: {
-            runtimeRoot: config.runtime.root_dir,
-            configPath: process.env.ARCHE_CONFIG_PATH ?? "",
-            recommendation:
-              "Ensure runtime and config paths are absolute and mounted at the same host/container path",
+        cliLogger.warn(
+          "cli",
+          "containerized process is controlling host docker",
+          {
+            event: "cli.doctor.container_host_docker_warning",
+            details: {
+              runtimeRoot: config.runtime.root_dir,
+              configPath: process.env.ARCHE_CONFIG_PATH ?? "",
+              recommendation:
+                "Ensure runtime and config paths are absolute and mounted at the same host/container path",
+            },
           },
-        });
+        );
       }
 
-      const imageCheck = await runCommand("docker", ["image", "inspect", config.sandbox.image]);
+      const imageCheck = await runCommand("docker", [
+        "image",
+        "inspect",
+        config.sandbox.image,
+      ]);
       if (imageCheck.returncode !== 0) {
         cliLogger.warn("cli", "sandbox image is not available locally", {
           event: "cli.doctor.sandbox_image_missing",
@@ -339,20 +397,24 @@ program
     }
   });
 
-const repositories = program.command("repositories").description("Manage repository registry");
-const repoRules = program.command("repo-rules").description("Manage repository routing rules");
-const profiles = program.command("profiles").description("Inspect configured execution profiles");
+const repositories = program
+  .command("repositories")
+  .description("Manage repository registry");
+const repoRules = program
+  .command("repo-rules")
+  .description("Manage repository routing rules");
+const profiles = program
+  .command("profiles")
+  .description("Inspect configured execution profiles");
 
-repositories
-  .command("list")
-  .action(async () => {
-    const [{ ensureArcheReady }, { listRepositories }] = await Promise.all([
-      import("./lib/bootstrap"),
-      import("./lib/arche/runs"),
-    ]);
-    await ensureArcheReady();
-    printJson(await listRepositories());
-  });
+repositories.command("list").action(async () => {
+  const [{ ensureArcheReady }, { listRepositories }] = await Promise.all([
+    import("./lib/bootstrap"),
+    import("./lib/arche/runs"),
+  ]);
+  await ensureArcheReady();
+  printJson(await listRepositories());
+});
 
 repositories
   .command("add")
@@ -381,16 +443,14 @@ repositories
     printJson(repository);
   });
 
-repoRules
-  .command("list")
-  .action(async () => {
-    const [{ ensureArcheReady }, { listRepoRules }] = await Promise.all([
-      import("./lib/bootstrap"),
-      import("./lib/arche/runs"),
-    ]);
-    await ensureArcheReady();
-    printJson(await listRepoRules());
-  });
+repoRules.command("list").action(async () => {
+  const [{ ensureArcheReady }, { listRepoRules }] = await Promise.all([
+    import("./lib/bootstrap"),
+    import("./lib/arche/runs"),
+  ]);
+  await ensureArcheReady();
+  printJson(await listRepoRules());
+});
 
 repoRules
   .command("add")
@@ -444,10 +504,11 @@ runs
   .argument("<ticketKey>")
   .option("--force", "bypass eligibility checks and active-run guard")
   .action(async (ticketKey, options: { force?: boolean }) => {
-    const [{ ensureArcheReady }, { createManualRunForTicket }] = await Promise.all([
-      import("./lib/bootstrap"),
-      import("./lib/arche/runs"),
-    ]);
+    const [{ ensureArcheReady }, { createManualRunForTicket }] =
+      await Promise.all([
+        import("./lib/bootstrap"),
+        import("./lib/arche/runs"),
+      ]);
     await ensureArcheReady();
     const run = await createManualRunForTicket({
       ticketKey,
@@ -556,46 +617,51 @@ runs
   .option("--kind <kind>", "events|logs|commands|all", "all")
   .option("--follow", "poll for new log entries")
   .option("--json", "output structured JSON")
-  .action(async (runId, options: { kind?: string; follow?: boolean; json?: boolean }) => {
-    const kind = validateLogKind(options.kind);
-    const [{ ensureArcheReady }, runsModule, { sleep }] = await Promise.all([
-      import("./lib/bootstrap"),
-      import("./lib/arche/runs"),
-      import("./lib/arche/utils"),
-    ]);
-    await ensureArcheReady();
+  .action(
+    async (
+      runId,
+      options: { kind?: string; follow?: boolean; json?: boolean },
+    ) => {
+      const kind = validateLogKind(options.kind);
+      const [{ ensureArcheReady }, runsModule, { sleep }] = await Promise.all([
+        import("./lib/bootstrap"),
+        import("./lib/arche/runs"),
+        import("./lib/arche/utils"),
+      ]);
+      await ensureArcheReady();
 
-    const cursors = {
-      logs: 0,
-      events: 0,
-      commands: 0,
-    };
+      const cursors = {
+        logs: 0,
+        events: 0,
+        commands: 0,
+      };
 
-    do {
-      const batch = await loadLogEntries(runsModule, runId, kind, cursors);
-      updateLogCursors(cursors, batch);
+      do {
+        const batch = await loadLogEntries(runsModule, runId, kind, cursors);
+        updateLogCursors(cursors, batch);
 
-      if (options.json) {
-        if (options.follow) {
-          for (const entry of batch.entries) {
-            process.stdout.write(`${JSON.stringify(entry)}\n`);
+        if (options.json) {
+          if (options.follow) {
+            for (const entry of batch.entries) {
+              process.stdout.write(`${JSON.stringify(entry)}\n`);
+            }
+          } else {
+            printJson(batch.entries);
           }
         } else {
-          printJson(batch.entries);
+          for (const entry of batch.entries) {
+            process.stdout.write(`${formatLogEntry(entry)}\n`);
+          }
         }
-      } else {
-        for (const entry of batch.entries) {
-          process.stdout.write(`${formatLogEntry(entry)}\n`);
+
+        if (!options.follow) {
+          break;
         }
-      }
 
-      if (!options.follow) {
-        break;
-      }
-
-      await sleep(1000);
-    } while (true);
-  });
+        await sleep(1000);
+      } while (true);
+    },
+  );
 
 program
   .command("dashboard")
@@ -611,7 +677,11 @@ program
 
 program
   .command("serve")
-  .option("--host <host>", "host to bind", defaultInstallEnvValues.ARCHE_SERVER_HOST)
+  .option(
+    "--host <host>",
+    "host to bind",
+    defaultInstallEnvValues.ARCHE_SERVER_HOST,
+  )
   .option("--port <port>", "port to bind", "8787")
   .action(async (options) => {
     printArcheBanner();
@@ -659,7 +729,12 @@ type TimelineEntry = {
 };
 
 function validateLogKind(value: string | undefined): LogKind {
-  if (value === "events" || value === "logs" || value === "commands" || value === "all") {
+  if (
+    value === "events" ||
+    value === "logs" ||
+    value === "commands" ||
+    value === "all"
+  ) {
     return value;
   }
   throw new Error(`Unsupported log kind: ${value ?? ""}`);
@@ -714,7 +789,8 @@ async function loadLogEntries(
     ...commandsPage.items.map((command) => ({
       source: "command" as const,
       id: Number(command.id),
-      timestamp: typeof command.timestamp === "string" ? command.timestamp : null,
+      timestamp:
+        typeof command.timestamp === "string" ? command.timestamp : null,
       message: `command [${String(command.phase)}] exit=${String(command.returncode)} ${String(command.command)}`,
       payload: command,
     })),
@@ -733,7 +809,10 @@ async function loadLogEntries(
   return {
     entries,
     latestIds: {
-      logs: logsPage.items.length > 0 ? Number(logsPage.items.at(-1)?.id ?? cursors.logs) : cursors.logs,
+      logs:
+        logsPage.items.length > 0
+          ? Number(logsPage.items.at(-1)?.id ?? cursors.logs)
+          : cursors.logs,
       events:
         eventsPage.items.length > 0
           ? Number(eventsPage.items.at(-1)?.id ?? cursors.events)
@@ -746,7 +825,10 @@ async function loadLogEntries(
   };
 }
 
-function updateLogCursors(cursors: LogCursorState, batch: { latestIds: LogCursorState }) {
+function updateLogCursors(
+  cursors: LogCursorState,
+  batch: { latestIds: LogCursorState },
+) {
   cursors.logs = batch.latestIds.logs;
   cursors.events = batch.latestIds.events;
   cursors.commands = batch.latestIds.commands;
@@ -757,9 +839,15 @@ function formatLogEntry(entry: TimelineEntry) {
   return `${timestamp} ${entry.message}`;
 }
 
-async function promptInstallEnv(current: InstallEnvValues, hasExistingEnv: boolean) {
+async function promptInstallEnv(
+  current: InstallEnvValues,
+  hasExistingEnv: boolean,
+) {
   if (hasExistingEnv) {
-    p.note("Review the values below and adjust only what changed.", "Existing configuration");
+    p.note(
+      "Review the values below and adjust only what changed.",
+      "Existing configuration",
+    );
   }
 
   const runtimeRoot = guardPrompt(
@@ -848,7 +936,11 @@ async function promptInstallEnv(current: InstallEnvValues, hasExistingEnv: boole
   const configureJira = guardPrompt(
     await p.confirm({
       message: "Configure Jira now?",
-      initialValue: hasAnyValue(current.USER_JIRA_BASE_URL, current.USER_JIRA_EMAIL, current.USER_JIRA_API_TOKEN),
+      initialValue: hasAnyValue(
+        current.USER_JIRA_BASE_URL,
+        current.USER_JIRA_EMAIL,
+        current.USER_JIRA_API_TOKEN,
+      ),
     }),
   );
 
@@ -858,7 +950,7 @@ async function promptInstallEnv(current: InstallEnvValues, hasExistingEnv: boole
           await p.text({
             message: "Jira base URL",
             initialValue: current.USER_JIRA_BASE_URL,
-            placeholder: "https://jira.example.com",
+            placeholder: "https://example.atlassian.net",
             validate: validateUrl,
           }),
         );
@@ -903,7 +995,10 @@ async function promptInstallEnv(current: InstallEnvValues, hasExistingEnv: boole
   const configureGitLab = guardPrompt(
     await p.confirm({
       message: "Configure GitLab now?",
-      initialValue: hasAnyValue(current.USER_GITLAB_BASE_URL, current.USER_GITLAB_TOKEN),
+      initialValue: hasAnyValue(
+        current.USER_GITLAB_BASE_URL,
+        current.USER_GITLAB_TOKEN,
+      ),
     }),
   );
 
@@ -948,19 +1043,10 @@ async function promptInitOrchestratorValues(current: InitOrchestratorValues) {
   p.note(
     [
       "These values are stored in orchestrator.yml.",
-      "The default repository is used only when no repo-rule matches a ticket.",
       "The branch prefix is prepended to generated branches.",
     ].join("\n"),
     "Orchestrator defaults",
   );
-
-  const defaultRepository = guardPrompt(
-    await p.text({
-      message: "Default repository name (optional fallback when no repo-rule matches)",
-      initialValue: current.defaultRepository,
-      placeholder: defaultInitOrchestratorValues.defaultRepository,
-    }),
-  ).trim();
 
   const branchPrefix = normalizeBranchPrefix(
     guardPrompt(
@@ -974,7 +1060,6 @@ async function promptInitOrchestratorValues(current: InitOrchestratorValues) {
   );
 
   return {
-    defaultRepository,
     branchPrefix,
   };
 }

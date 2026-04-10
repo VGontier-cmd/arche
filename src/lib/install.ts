@@ -58,13 +58,90 @@ export const defaultInstallEnvValues: InstallEnvValues = {
 };
 
 export const defaultInitOrchestratorValues = {
-  branchPrefix: "jira/",
-  defaultRepository: "",
+  branchPrefix: "arche/",
 } as const;
+
+const defaultInitOrchestratorConfig: Record<string, unknown> = {
+  runtime: {
+    root_dir: "./runtime",
+    repos_dir: "./runtime/repos",
+    runs_dir: "./runtime/runs",
+    logs_dir: "./runtime/logs",
+    db_retention_days: 30,
+    artifact_retention_days: 14,
+    failed_worktree_retention_days: 3,
+  },
+  worker: {
+    poll_interval_seconds: 5,
+    lease_ttl_seconds: 900,
+    max_agent_steps: 8,
+    max_run_seconds: 1200,
+  },
+  policy: {
+    assignee: "agent-dev",
+    required_status: "In Progress",
+    required_label: "agent-ready",
+    allowed_issue_types: ["Bug", "Task", "Chore"],
+    max_changed_files: 20,
+    max_changed_lines: 500,
+    description_min_length: 20,
+  },
+  sandbox: {
+    image: "arche-app:local",
+    network: "bridge",
+    shell: "/bin/bash",
+    read_only_rootfs: true,
+    tmpfs_paths: ["/tmp"],
+    cap_drop: ["ALL"],
+    no_new_privileges: true,
+    pids_limit: 256,
+    memory_limit_mb: 2048,
+    cpus: "2",
+    env_allowlist: [],
+    user: "",
+  },
+  defaults: {
+    allowed_commands: [],
+    validation_commands: [],
+  },
+  routing: {
+    default_repository: null,
+  },
+  git: {
+    branch_prefix: "arche/",
+  },
+  workflow: {
+    mode: "plan_execute_review",
+    max_review_cycles: 3,
+    require_plan_approval: true,
+    require_publish_approval: true,
+  },
+  executors: {
+    defaults: {
+      planner: "default",
+      executor: "default",
+      reviewer: "default",
+    },
+    profiles: {
+      default: {
+        driver: "openai_compatible_api",
+        base_url: "https://openrouter.ai/api/v1",
+        model: "openai/gpt-5.4-mini",
+        api_key_env: "USER_OPENROUTER_API_KEY",
+        timeout_seconds: 60,
+        max_actions: 8,
+        temperature: 0.1,
+      },
+    },
+  },
+  bootstrap: {
+    repositories: [],
+    repo_rules: [],
+  },
+};
 
 export type InitOrchestratorValues = {
   branchPrefix: string;
-  defaultRepository: string;
 };
 
 export async function readEnvFile(path: string) {
@@ -84,7 +161,6 @@ export async function readInitOrchestratorConfig(path: string): Promise<{
     const raw = await readFile(path, "utf8");
     const parsed = parseYaml(raw);
     const rawConfig = isObjectRecord(parsed) ? parsed : {};
-    const routing = isObjectRecord(rawConfig.routing) ? rawConfig.routing : {};
     const git = isObjectRecord(rawConfig.git) ? rawConfig.git : {};
     return {
       rawConfig,
@@ -93,8 +169,6 @@ export async function readInitOrchestratorConfig(path: string): Promise<{
           typeof git.branch_prefix === "string"
             ? git.branch_prefix
             : defaultInitOrchestratorValues.branchPrefix,
-        defaultRepository:
-          typeof routing.default_repository === "string" ? routing.default_repository : "",
       },
     };
   } catch (error) {
@@ -164,6 +238,7 @@ export function mergeInitOrchestratorConfig(
   values: InitOrchestratorValues,
 ) {
   const nextConfig: Record<string, unknown> = {
+    ...(structuredClone(defaultInitOrchestratorConfig) as Record<string, unknown>),
     ...rawConfig,
   };
   const nextGit = {
@@ -171,23 +246,6 @@ export function mergeInitOrchestratorConfig(
     branch_prefix: normalizeBranchPrefix(values.branchPrefix),
   };
   nextConfig.git = nextGit;
-
-  const defaultRepository = values.defaultRepository.trim();
-  const nextRouting = {
-    ...(isObjectRecord(rawConfig.routing) ? rawConfig.routing : {}),
-  };
-
-  if (defaultRepository) {
-    nextRouting.default_repository = defaultRepository;
-  } else {
-    delete nextRouting.default_repository;
-  }
-
-  if (Object.keys(nextRouting).length > 0) {
-    nextConfig.routing = nextRouting;
-  } else {
-    delete nextConfig.routing;
-  }
 
   return nextConfig;
 }
