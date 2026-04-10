@@ -228,18 +228,16 @@ program
           "1) Validate local setup",
           "   arche doctor",
           "",
-          "2) Register a repository",
-          "   arche repositories add --name <repo> --remote-url <git-url> --local-mirror-path ./runtime/repos/<repo> [--gitlab-project-id <id>]",
+          "2) Register a repository (and optional Jira routing rule)",
+          "   arche setup wizard",
+          "   # or: arche repositories add … then arche repo-rules add …",
           "",
-          "3) Route Jira tickets to a repository",
-          "   arche repo-rules add --name <rule> --repository <repo> --jira-project-key <KEY> --label agent-ready --issue-type Bug",
-          "",
-          "4) Start services",
+          "3) Start services",
           "   arche serve --port 8787",
           "   arche worker",
           "   arche dashboard",
           "",
-          "5) Trigger a run manually",
+          "4) Trigger a run manually",
           "   arche runs manual <JIRA-KEY>",
         ].join("\n"),
         "Next steps",
@@ -401,6 +399,22 @@ program
       });
       process.exitCode = 1;
     }
+  });
+
+const setup = program
+  .command("setup")
+  .description("Guided configuration (interactive flows)");
+
+setup
+  .command("wizard")
+  .description(
+    "Register a repository and optionally a Jira routing rule (repositories add + repo-rules add)",
+  )
+  .action(async () => {
+    printArcheBanner();
+    const { runSetupWizard } = await import("./lib/arche/routing-wizard");
+    const result = await runSetupWizard();
+    printJson(result);
   });
 
 const repositories = program
