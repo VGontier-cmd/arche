@@ -24,3 +24,9 @@ export function formatCost(usd: string | number | null | undefined): string {
   if (usd === null || usd === undefined) return "";
   return "$" + Number(usd).toFixed(4);
 }
+
+export function formatDurationSeconds(seconds: number | null): string {
+  if (seconds === null) return "-";
+  if (seconds < 60) return seconds + "s";
+  return Math.floor(seconds / 60) + "m " + (seconds % 60) + "s";
+}

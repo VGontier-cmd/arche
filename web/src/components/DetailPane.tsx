@@ -3,6 +3,7 @@ import { StatusBadge } from "./StatusBadge";
 import { DetailMeta } from "./DetailMeta";
 import { DetailActions } from "./DetailActions";
 import { DetailPlan } from "./DetailPlan";
+import { DiffViewer } from "./DiffViewer";
 import { DetailPendingQuestion } from "./DetailPendingQuestion";
 import { TasksList } from "./TasksList";
 import { Timeline } from "./Timeline";
@@ -42,7 +43,20 @@ export function DetailPane({
         onOpenRespond={onOpenRespond}
         gitlabConfigured={snapshot.credentialEnv.gitlab}
       />
+      {run.mrUrl && (
+        <div className="mb-5">
+          <a
+            href={run.mrUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[var(--rounded-box)] bg-[#238636] text-white hover:bg-[#2ea043] transition-colors"
+          >
+            View Merge Request &#8599;
+          </a>
+        </div>
+      )}
       <DetailPlan planMarkdown={run.planMarkdown} />
+      <DiffViewer diffExcerpt={run.diffExcerpt} />
       <DetailPendingQuestion pendingQuestion={run.pendingQuestion} />
       <TasksList tasks={snapshot.tasks} />
       <Timeline timeline={snapshot.timeline} timelineTotal={snapshot.timelineTotal} runId={snapshot.selectedRunId} />

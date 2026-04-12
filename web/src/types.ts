@@ -5,6 +5,8 @@ export type DashboardSummary = {
   workerCount: number;
   onlineWorkerCount: number;
   offlineWorkerCount: number;
+  totalCostUsd: number;
+  avgDurationSeconds: number | null;
 };
 
 export type DashboardWorker = {
@@ -61,6 +63,7 @@ export type DashboardRun = {
   branchName: string | null;
   mrUrl: string | null;
   summary: string | null;
+  diffExcerpt: string | null;
   failureReason: string | null;
   workerId: string | null;
   promptTokens: number | null;

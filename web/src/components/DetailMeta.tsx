@@ -57,21 +57,6 @@ export function DetailMeta({ run, jiraBaseUrl }: { run: DashboardRun; jiraBaseUr
             </span>
           </>
         )}
-        {run.mrUrl && (
-          <>
-            <span className="text-[var(--fg2)]">MR</span>
-            <span>
-              <a
-                href={run.mrUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[#58a6ff] hover:underline"
-              >
-                {run.mrUrl}
-              </a>
-            </span>
-          </>
-        )}
         {run.failureReason && (
           <>
             <span className="text-[var(--fg2)]">Failure</span>

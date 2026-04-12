@@ -71,6 +71,8 @@ export type DashboardSummary = {
   workerCount: number;
   onlineWorkerCount: number;
   offlineWorkerCount: number;
+  totalCostUsd: number;
+  avgDurationSeconds: number | null;
 };
 
 export type DashboardServiceStatus = {
@@ -188,6 +190,23 @@ export async function getDashboardSnapshot(options: {
 
   const visibleRunRows = runRows.filter((run) => !run.archivedAt);
 
+  // Aggregate cost and duration across visible runs
+  let totalCostUsd = 0;
+  let totalDurationSeconds = 0;
+  let durationCount = 0;
+  for (const run of visibleRunRows) {
+    if (run.estimatedCostUsd !== null) {
+      totalCostUsd += Number(run.estimatedCostUsd);
+    }
+    if (run.startedAt && run.finishedAt) {
+      const start = run.startedAt instanceof Date ? run.startedAt.getTime() : new Date(run.startedAt as string).getTime();
+      const end = run.finishedAt instanceof Date ? run.finishedAt.getTime() : new Date(run.finishedAt as string).getTime();
+      totalDurationSeconds += (end - start) / 1000;
+      durationCount++;
+    }
+  }
+  const avgDurationSeconds = durationCount > 0 ? Math.round(totalDurationSeconds / durationCount) : null;
+
   const inboxRows = visibleRunRows.filter((run) => INBOX_STATUSES.has(run.status));
   const activeRows = visibleRunRows.filter(
     (run) => !INBOX_STATUSES.has(run.status) && !TERMINAL_STATUSES.has(run.status),
@@ -272,6 +291,8 @@ export async function getDashboardSnapshot(options: {
       workerCount: dashboardWorkers.length,
       onlineWorkerCount,
       offlineWorkerCount: dashboardWorkers.filter((worker) => worker.offline).length,
+      totalCostUsd,
+      avgDurationSeconds,
     },
     services: {
       workerRunning: onlineWorkerCount > 0,

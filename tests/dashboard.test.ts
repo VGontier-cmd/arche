@@ -323,6 +323,8 @@ describe("dashboard read model", () => {
       workerCount: 2,
       onlineWorkerCount: 1,
       offlineWorkerCount: 1,
+      totalCostUsd: 0,
+      avgDurationSeconds: null,
     });
     expect(snapshot.credentialEnv).toEqual({
       openRouter: true,
@@ -524,6 +526,8 @@ function makeSnapshot(
       workerCount: 1,
       onlineWorkerCount: 1,
       offlineWorkerCount: 0,
+      totalCostUsd: 0,
+      avgDurationSeconds: null,
     },
     services: {
       workerRunning: true,

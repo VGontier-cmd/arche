@@ -1,7 +1,8 @@
 import type { DashboardSummary } from "../types";
+import { formatCost, formatDurationSeconds } from "../lib/format";
 
 export function KpiCards({ summary }: { summary: DashboardSummary }) {
-  const cards = [
+  const cards: Array<{ label: string; value: string | number; color: string }> = [
     { label: "Inbox", value: summary.inboxCount, color: "text-[#d29922]" },
     { label: "Active", value: summary.activeCount, color: "text-[#58a6ff]" },
     { label: "Failed", value: summary.failedCount, color: "text-[#f85149]" },
@@ -10,10 +11,12 @@ export function KpiCards({ summary }: { summary: DashboardSummary }) {
       value: `${summary.onlineWorkerCount}/${summary.workerCount}`,
       color: "text-[#3fb950]",
     },
+    { label: "Total Cost", value: formatCost(summary.totalCostUsd) || "$0", color: "text-[#39d2c0]" },
+    { label: "Avg Duration", value: formatDurationSeconds(summary.avgDurationSeconds), color: "text-[#d2a8ff]" },
   ];
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-5 py-4">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 px-5 py-4">
       {cards.map((card) => (
         <div
           key={card.label}
