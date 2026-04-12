@@ -24,6 +24,14 @@ export const plannerRoleOutputSchema = z
     }
   });
 
+export const plannerSchemaHint = `{
+  "planMarkdown": "string (required) — detailed step-by-step implementation plan in markdown",
+  "risks": ["string — potential risk or concern"],
+  "openQuestions": ["string — question that needs to be answered"],
+  "needsHumanInput": false,
+  "question": "string | null — a question for the human, required when needsHumanInput is true"
+}`;
+
 export const executorRoleOutputSchema = z
   .object({
     summary: z.string().min(1),
@@ -64,3 +72,19 @@ export const reviewerRoleOutputSchema = z
       });
     }
   });
+
+export const reviewerSchemaHint = `{
+  "decision": "approve | request_changes | needs_human_input",
+  "summary": "string (required) — review summary",
+  "findings": [{"title": "string", "body": "string", "file": "string | null"}],
+  "question": "string | null — required when decision is needs_human_input"
+}`;
+
+export const executorActionSchemaHint = `One of:
+- {"action":"read_files","paths":["path/to/file.ts"]}
+- {"action":"read_files","files":[{"path":"file.ts","offset":0,"limit":4096}]}
+- {"action":"run_command","command":"npm test"}
+- {"action":"write_file","path":"src/foo.ts","content":"full file content here"}
+- {"action":"delete_file","path":"src/old-file.ts"}
+- {"action":"finish","summary":"string (required)","implementedPlanDelta":"string (required)"}
+- {"action":"needs_human_input","question":"string (required)"}`;

@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import * as p from "@clack/prompts";
+
+import { archePackageRootDir } from "../cli-helpers";
 
 export const HOST_PREREQS_MIN_NODE_MAJOR = 22;
 
@@ -17,16 +18,8 @@ function hostPrereqsScriptPath(packageRoot: string): string {
   return join(packageRoot, "scripts", "install-host-prereqs.sh");
 }
 
-/** Resolves the npm package / repo root that contains `scripts/install-host-prereqs.sh`. */
 export function resolveArchePackageRootForScripts(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const candidates = [resolve(join(here, "..", "..", "..")), resolve(join(here, ".."))];
-  for (const root of candidates) {
-    if (existsSync(hostPrereqsScriptPath(root))) {
-      return root;
-    }
-  }
-  return resolve(join(here, ".."));
+  return archePackageRootDir();
 }
 
 export async function getHostPrereqsStatus(): Promise<HostPrereqsStatus> {

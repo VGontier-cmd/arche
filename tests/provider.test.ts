@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -297,5 +297,79 @@ describe("OpenRouterSdkProvider", () => {
     });
 
     expect(first).toEqual(second);
+  });
+
+  it("writes a new file inside the worktree", async () => {
+    const provider = makeProvider();
+    const result = await provider.writeFile("new-file.txt", "hello world");
+
+    expect(result).toMatchObject({
+      result: "file_written",
+      path: "new-file.txt",
+      created: true,
+    });
+    expect(result.bytes_written).toBeGreaterThan(0);
+
+    const content = await readFile(join(workspace, "new-file.txt"), "utf8");
+    expect(content).toBe("hello world");
+  });
+
+  it("overwrites an existing file and reports created=false", async () => {
+    const provider = makeProvider();
+    await writeFile(join(workspace, "existing.txt"), "old content", "utf8");
+
+    const result = await provider.writeFile("existing.txt", "new content");
+    expect(result.created).toBe(false);
+
+    const content = await readFile(join(workspace, "existing.txt"), "utf8");
+    expect(content).toBe("new content");
+  });
+
+  it("creates parent directories for nested file writes", async () => {
+    const provider = makeProvider();
+    const result = await provider.writeFile("deep/nested/dir/file.ts", "export default 1;");
+
+    expect(result.created).toBe(true);
+    const content = await readFile(join(workspace, "deep/nested/dir/file.ts"), "utf8");
+    expect(content).toBe("export default 1;");
+  });
+
+  it("rejects file writes that escape the worktree root", async () => {
+    const provider = makeProvider();
+    await expect(provider.writeFile("../escape.txt", "bad")).rejects.toThrow("escapes repository root");
+  });
+
+  it("rejects file writes exceeding the size limit", async () => {
+    const provider = makeProvider();
+    const hugeContent = "x".repeat(300 * 1024);
+    await expect(provider.writeFile("huge.txt", hugeContent)).rejects.toThrow("exceeds limit");
+  });
+
+  it("deletes an existing file", async () => {
+    const provider = makeProvider();
+    await writeFile(join(workspace, "to-delete.txt"), "bye", "utf8");
+
+    const result = await provider.deleteFile("to-delete.txt");
+    expect(result).toMatchObject({ result: "file_deleted", path: "to-delete.txt" });
+
+    await expect(readFile(join(workspace, "to-delete.txt"))).rejects.toThrow();
+  });
+
+  it("rejects deleting a file that does not exist", async () => {
+    const provider = makeProvider();
+    await expect(provider.deleteFile("ghost.txt")).rejects.toThrow("does not exist");
+  });
+
+  it("invalidates read cache after writing a file", async () => {
+    const provider = makeProvider();
+    await writeFile(join(workspace, "cached.txt"), "original", "utf8");
+
+    const firstRead = await provider.readFiles({ paths: ["cached.txt"] });
+    expect(firstRead.files[0]?.content).toBe("original");
+
+    await provider.writeFile("cached.txt", "updated");
+
+    const secondRead = await provider.readFiles({ paths: ["cached.txt"] });
+    expect(secondRead.files[0]?.content).toBe("updated");
   });
 });

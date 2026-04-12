@@ -63,7 +63,7 @@ export async function approvePlan(runId: string) {
 
 export async function respondToRun(runId: string, message: string) {
   const run = await getRunById(runId);
-  if (run.status !== "needs_human_input") {
+  if (run.status !== "needs_human_input" && run.status !== "awaiting_plan_approval") {
     throw new ExternalServiceError(`Run ${runId} is not waiting for human input`);
   }
   const [updated] = await withSqliteWriteRetry(() =>

@@ -51,21 +51,6 @@ describe("getConfig", () => {
     expect(config.runtime.root_dir).toBe(runtimeRoot);
   });
 
-  it("rejects deprecated workflow.executor_kind and workflow.models", async () => {
-    await expect(
-      loadConfig([
-        "workflow:",
-        "  mode: plan_execute_review",
-        "  executor_kind: codex_cli",
-        "  models:",
-        "    planner: old",
-        "",
-      ].join("\n")),
-    ).rejects.toThrow(
-      "workflow.executor_kind and workflow.models are no longer supported; use executors.defaults and executors.profiles",
-    );
-  });
-
   it("rejects defaults that point to an unknown execution profile", async () => {
     await expect(
       loadConfig([

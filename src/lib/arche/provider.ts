@@ -3,7 +3,8 @@
  * (`https://openrouter.ai/api/v1`, chat/completions) while the config driver stays generic
  * because the selected profile still uses the OpenAI-compatible request shape.
  */
-import { readFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import { readFile, writeFile as fsWriteFile, unlink } from "node:fs/promises";
 
 import { HTTPClient, OpenRouter } from "@openrouter/sdk";
 import type { ChatMessages, ChatRequest, ChatResult } from "@openrouter/sdk/models";
@@ -18,10 +19,11 @@ import { z, type ZodType } from "zod";
 import { ExternalServiceError } from "./errors";
 import { redactText } from "./logging";
 import type { ProviderReadFileRequest } from "./types";
-import { createPathGuard } from "./utils";
+import { createPathGuard, ensureDirectory } from "./utils";
 
 const MAX_READ_REQUESTS = 20;
 const MAX_FILE_READ_BYTES = 64 * 1024;
+const MAX_FILE_WRITE_BYTES = 256 * 1024;
 const MAX_ACTION_READ_BYTES = 256 * 1024;
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504, 524, 529]);
 const JSON_REPAIR_MESSAGE =
@@ -69,6 +71,17 @@ export const providerActionSchema = z.union([
     notes: z.string().optional(),
   }),
   z.object({
+    action: z.literal("write_file"),
+    path: z.string().min(1),
+    content: z.string(),
+    notes: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal("delete_file"),
+    path: z.string().min(1),
+    notes: z.string().optional(),
+  }),
+  z.object({
     action: z.literal("apply_patch"),
     patch: z.string().min(1),
     notes: z.string().optional(),
@@ -102,12 +115,18 @@ export type ProviderInvocation = {
   extraBody?: Record<string, unknown>;
 };
 
+export type ProviderUsage = {
+  promptTokens: number;
+  completionTokens: number;
+};
+
 export type ProviderAttempt = {
   requestBody: Record<string, unknown>;
   responseStatus?: number;
   responseBody?: unknown;
   responseText?: string;
   error?: string;
+  usage?: ProviderUsage;
 };
 
 function extractFirstJsonObject(text: string) {
@@ -306,6 +325,17 @@ export class OpenRouterSdkProvider {
           },
         ) as ChatResult;
 
+        // Extract usage from OpenRouter response
+        const usage = (response as Record<string, unknown>).usage as
+          | { prompt_tokens?: number; completion_tokens?: number }
+          | undefined;
+        if (usage) {
+          attemptRecord.usage = {
+            promptTokens: usage.prompt_tokens ?? 0,
+            completionTokens: usage.completion_tokens ?? 0,
+          };
+        }
+
         return extractAssistantText(response.choices[0]?.message?.content);
       } catch (error) {
         if (error instanceof OpenRouterError) {
@@ -352,7 +382,7 @@ export class OpenRouterSdkProvider {
     );
   }
 
-  async completeStructured<T>(messages: ProviderMessage[], schema: ZodType<T>) {
+  async completeStructured<T>(messages: ProviderMessage[], schema: ZodType<T>, schemaHint?: string) {
     const attempts: ProviderAttempt[] = [];
     const firstText = await this.requestText(messages, attempts);
 
@@ -361,6 +391,7 @@ export class OpenRouterSdkProvider {
         output: parseJsonWithSchema(firstText, schema),
         attempts,
         responseText: firstText,
+        usage: aggregateUsage(attempts),
       };
     } catch (error) {
       if (!(error instanceof ExternalServiceError) || error.code !== "provider_output_invalid") {
@@ -368,11 +399,15 @@ export class OpenRouterSdkProvider {
       }
     }
 
+    const repairMessage = schemaHint
+      ? `${JSON_REPAIR_MESSAGE}\n\nExpected JSON format:\n${schemaHint}`
+      : JSON_REPAIR_MESSAGE;
+
     const repairedText = await this.requestText(
       [
         ...messages,
         { role: "assistant", content: firstText },
-        { role: "user", content: JSON_REPAIR_MESSAGE },
+        { role: "user", content: repairMessage },
       ],
       attempts,
     );
@@ -381,10 +416,11 @@ export class OpenRouterSdkProvider {
       output: parseJsonWithSchema(repairedText, schema),
       attempts,
       responseText: repairedText,
+      usage: aggregateUsage(attempts),
     };
   }
 
-  async completeAction(messages: ProviderMessage[]) {
+  async completeAction(messages: ProviderMessage[], schemaHint?: string) {
     const attempts: ProviderAttempt[] = [];
     const firstText = await this.requestText(messages, attempts);
 
@@ -393,6 +429,7 @@ export class OpenRouterSdkProvider {
         action: parseJsonWithSchema(firstText, providerActionSchema),
         attempts,
         responseText: firstText,
+        usage: aggregateUsage(attempts),
       };
     } catch (error) {
       if (!(error instanceof ExternalServiceError) || error.code !== "provider_output_invalid") {
@@ -400,11 +437,15 @@ export class OpenRouterSdkProvider {
       }
     }
 
+    const repairMessage = schemaHint
+      ? `${JSON_REPAIR_MESSAGE}\n\nExpected JSON format:\n${schemaHint}`
+      : JSON_REPAIR_MESSAGE;
+
     const repairedText = await this.requestText(
       [
         ...messages,
         { role: "assistant", content: firstText },
-        { role: "user", content: JSON_REPAIR_MESSAGE },
+        { role: "user", content: repairMessage },
       ],
       attempts,
     );
@@ -413,6 +454,7 @@ export class OpenRouterSdkProvider {
       action: parseJsonWithSchema(repairedText, providerActionSchema),
       attempts,
       responseText: repairedText,
+      usage: aggregateUsage(attempts),
     };
   }
 
@@ -486,6 +528,54 @@ export class OpenRouterSdkProvider {
       total_returned_bytes: files.reduce((total, item) => total + item.returned_bytes, 0),
     };
   }
+
+  async writeFile(path: string, content: string) {
+    if (!this.invocation.worktreePath) {
+      throw new ExternalServiceError("Provider file writes require a worktree path");
+    }
+    const guard = await createPathGuard(this.invocation.worktreePath);
+    const resolvedPath = guard.resolveLogical(path);
+    if (!resolvedPath) {
+      throw new ExternalServiceError(`Path escapes repository root: ${path}`);
+    }
+    const byteLength = Buffer.byteLength(content, "utf8");
+    if (byteLength > MAX_FILE_WRITE_BYTES) {
+      throw new ExternalServiceError(
+        `File content exceeds limit: ${byteLength} bytes > ${MAX_FILE_WRITE_BYTES} bytes`,
+      );
+    }
+    const existing = await guard.resolveExistingFile(path);
+    const created = existing.status !== "ok";
+    await ensureDirectory(dirname(resolvedPath));
+    await fsWriteFile(resolvedPath, content, "utf8");
+    this.invalidateReadCache(path);
+    return { result: "file_written", path, bytes_written: byteLength, created };
+  }
+
+  async deleteFile(path: string) {
+    if (!this.invocation.worktreePath) {
+      throw new ExternalServiceError("Provider file deletes require a worktree path");
+    }
+    const guard = await createPathGuard(this.invocation.worktreePath);
+    const existing = await guard.resolveExistingFile(path);
+    if (existing.status === "invalid") {
+      throw new ExternalServiceError(`Path escapes repository root or is not a file: ${path}`);
+    }
+    if (existing.status === "missing") {
+      throw new ExternalServiceError(`File does not exist: ${path}`);
+    }
+    await unlink(existing.realPath);
+    this.invalidateReadCache(path);
+    return { result: "file_deleted", path };
+  }
+
+  invalidateReadCache(path: string) {
+    for (const key of this.readCache.keys()) {
+      if (key.startsWith(`${path}:`)) {
+        this.readCache.delete(key);
+      }
+    }
+  }
 }
 
 function normalizeReadRequests(input: string[] | { paths?: string[]; files?: ProviderReadFileRequest[] }) {
@@ -536,4 +626,16 @@ function fitReadResultToBudget(
     next_offset: result.offset + slice.length,
     content: slice.toString("utf8"),
   };
+}
+
+export function aggregateUsage(attempts: ProviderAttempt[]): ProviderUsage {
+  let promptTokens = 0;
+  let completionTokens = 0;
+  for (const attempt of attempts) {
+    if (attempt.usage) {
+      promptTokens += attempt.usage.promptTokens;
+      completionTokens += attempt.usage.completionTokens;
+    }
+  }
+  return { promptTokens, completionTokens };
 }

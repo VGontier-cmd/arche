@@ -68,6 +68,8 @@ export type ProviderAction =
       notes?: string;
     }
   | { action: "run_command"; command: string; notes?: string }
+  | { action: "write_file"; path: string; content: string; notes?: string }
+  | { action: "delete_file"; path: string; notes?: string }
   | { action: "apply_patch"; patch: string; notes?: string }
   | { action: "finish"; summary: string; implementedPlanDelta: string; notes?: string }
   | { action: "needs_human_input"; question: string; notes?: string };

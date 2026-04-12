@@ -1,5 +1,6 @@
 import { env } from "../env";
-import { ExternalServiceError, NotFoundError } from "./errors";
+import { JiraServiceError, NotFoundError } from "./errors";
+import { withRetry } from "./retry";
 import type { JiraIssue } from "./types";
 
 export function normalizeIssue(rawIssue: unknown): JiraIssue {
@@ -47,7 +48,7 @@ export class JiraClient {
 
   private get headers() {
     if (!this.configured) {
-      throw new ExternalServiceError("Jira client is not configured");
+      throw new JiraServiceError("Jira client is not configured", "jira_not_configured");
     }
     const token = Buffer.from(
       `${env.USER_JIRA_EMAIL}:${env.USER_JIRA_API_TOKEN}`,
@@ -60,43 +61,74 @@ export class JiraClient {
     };
   }
 
+  private get baseUrl() {
+    return env.USER_JIRA_BASE_URL!.replace(/\/$/, "");
+  }
+
   async fetchIssue(issueKey: string) {
     if (!this.configured) {
-      throw new ExternalServiceError("Jira client is not configured");
+      throw new JiraServiceError("Jira client is not configured", "jira_not_configured");
     }
 
-    const response = await fetch(
-      `${env.USER_JIRA_BASE_URL!.replace(/\/$/, "")}/rest/api/3/issue/${issueKey}`,
-      {
-        headers: this.headers,
-      },
-    );
-
-    if (response.status === 404) {
-      const site = env.USER_JIRA_BASE_URL!.replace(/\/$/, "");
-      throw new NotFoundError(
-        `Jira issue ${issueKey} not found (404). Site: ${site}. Check the key exists on this instance, USER_JIRA_BASE_URL matches that site, and the API user can browse the project.`,
+    return withRetry(async () => {
+      const response = await fetch(
+        `${this.baseUrl}/rest/api/3/issue/${issueKey}`,
+        { headers: this.headers },
       );
-    }
-    if (!response.ok) {
-      throw new ExternalServiceError(`Jira issue fetch failed: ${response.status} ${await response.text()}`);
-    }
 
-    return normalizeIssue(await response.json());
+      if (response.status === 404) {
+        throw new NotFoundError(
+          `Jira issue ${issueKey} not found (404). Site: ${this.baseUrl}. Check the key exists on this instance, USER_JIRA_BASE_URL matches that site, and the API user can browse the project.`,
+        );
+      }
+      if (!response.ok) {
+        throw new JiraServiceError(
+          `Jira issue fetch failed: ${response.status} ${await response.text()}`,
+          "jira_fetch_failed",
+          { operation: "fetchIssue", ticketKey: issueKey },
+        );
+      }
+
+      return normalizeIssue(await response.json());
+    });
   }
 
   async commentIssue(issueKey: string, comment: string) {
     if (!this.configured) return;
-    const response = await fetch(
-      `${env.USER_JIRA_BASE_URL!.replace(/\/$/, "")}/rest/api/3/issue/${issueKey}/comment`,
-      {
-        method: "POST",
+
+    return withRetry(async () => {
+      const response = await fetch(
+        `${this.baseUrl}/rest/api/3/issue/${issueKey}/comment`,
+        {
+          method: "POST",
+          headers: this.headers,
+          body: JSON.stringify({ body: comment }),
+        },
+      );
+      if (!response.ok) {
+        throw new JiraServiceError(
+          `Jira comment failed: ${response.status} ${await response.text()}`,
+          "jira_comment_failed",
+          { operation: "commentIssue", ticketKey: issueKey },
+        );
+      }
+    });
+  }
+
+  async testConnection(): Promise<{ ok: boolean; error?: string }> {
+    if (!this.configured) {
+      return { ok: false, error: "Jira client is not configured" };
+    }
+    try {
+      const response = await fetch(`${this.baseUrl}/rest/api/3/myself`, {
         headers: this.headers,
-        body: JSON.stringify({ body: comment }),
-      },
-    );
-    if (!response.ok) {
-      throw new ExternalServiceError(`Jira comment failed: ${response.status} ${await response.text()}`);
+      });
+      if (!response.ok) {
+        return { ok: false, error: `HTTP ${response.status}` };
+      }
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : "Unknown error" };
     }
   }
 }

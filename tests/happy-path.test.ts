@@ -117,6 +117,10 @@ vi.mock("../src/lib/arche/git", () => {
       return;
     }
 
+    async isWorktreeValid() {
+      return true;
+    }
+
     async diffExcerpt() {
       return "diff --git a/src/index.ts b/src/index.ts\n+console.log('new')";
     }
@@ -581,17 +585,17 @@ describe("workflow orchestration", () => {
         authorization: "Bearer server-token",
       };
       const [detailResponse, logsResponse, eventsResponse, commandsResponse, profilesResponse] = await Promise.all([
-        fetch(`http://127.0.0.1:${port}/runs/${accepted.runId!}`, { headers: apiHeaders }),
-        fetch(`http://127.0.0.1:${port}/runs/${accepted.runId!}/logs?after_id=0&limit=10`, {
+        fetch(`http://127.0.0.1:${port}/v1/runs/${accepted.runId!}`, { headers: apiHeaders }),
+        fetch(`http://127.0.0.1:${port}/v1/runs/${accepted.runId!}/logs?after_id=0&limit=10`, {
           headers: apiHeaders,
         }),
-        fetch(`http://127.0.0.1:${port}/runs/${accepted.runId!}/events?after_id=0&limit=100`, {
+        fetch(`http://127.0.0.1:${port}/v1/runs/${accepted.runId!}/events?after_id=0&limit=100`, {
           headers: apiHeaders,
         }),
-        fetch(`http://127.0.0.1:${port}/runs/${accepted.runId!}/commands?after_id=0&limit=10`, {
+        fetch(`http://127.0.0.1:${port}/v1/runs/${accepted.runId!}/commands?after_id=0&limit=10`, {
           headers: apiHeaders,
         }),
-        fetch(`http://127.0.0.1:${port}/profiles`, { headers: apiHeaders }),
+        fetch(`http://127.0.0.1:${port}/v1/profiles`, { headers: apiHeaders }),
       ]);
 
       expect(detailResponse.status).toBe(200);
@@ -780,7 +784,7 @@ describe("workflow orchestration", () => {
       const address = server.server.address();
       expect(address).not.toBeNull();
       const port = typeof address === "object" && address ? address.port : 0;
-      const response = await fetch(`http://127.0.0.1:${port}/runs/${accepted.runId!}/respond`, {
+      const response = await fetch(`http://127.0.0.1:${port}/v1/runs/${accepted.runId!}/respond`, {
         method: "POST",
         headers: {
           authorization: "Bearer server-token",

@@ -218,6 +218,14 @@ export async function initSchema() {
   await ensureColumn("run_tasks", "profile_name", "alter table run_tasks add column profile_name text");
   await ensureColumn("run_tasks", "strategy", "alter table run_tasks add column strategy text");
 
+  // Cost tracking columns
+  await ensureColumn("runs", "prompt_tokens", "alter table runs add column prompt_tokens integer");
+  await ensureColumn("runs", "completion_tokens", "alter table runs add column completion_tokens integer");
+  await ensureColumn("runs", "estimated_cost_usd", "alter table runs add column estimated_cost_usd text");
+  await ensureColumn("run_tasks", "prompt_tokens", "alter table run_tasks add column prompt_tokens integer");
+  await ensureColumn("run_tasks", "completion_tokens", "alter table run_tasks add column completion_tokens integer");
+  await ensureColumn("run_tasks", "estimated_cost_usd", "alter table run_tasks add column estimated_cost_usd text");
+
   await withSqliteWriteRetry(() => db.run(sql`create index if not exists runs_ticket_key_idx on runs(ticket_key);`));
   await withSqliteWriteRetry(() => db.run(sql`create index if not exists runs_status_idx on runs(status);`));
   await withSqliteWriteRetry(() =>

@@ -12,8 +12,11 @@ import {
   type ProviderMessage,
 } from "./provider";
 import {
+  executorActionSchemaHint,
   plannerRoleOutputSchema,
+  plannerSchemaHint,
   reviewerRoleOutputSchema,
+  reviewerSchemaHint,
 } from "./role-schemas";
 import type { ResolvedExecutionProfile } from "./profiles";
 import { resolveExecutionProfile } from "./profiles";
@@ -168,6 +171,9 @@ export function buildPlannerPrompt(input: {
       ? `Latest human response to a previous question:\n${input.latestHumanResponse}\n`
       : "",
     "Return a concrete implementation plan, explicit risks, and open questions. Set needsHumanInput=true only if you cannot safely continue planning.",
+    "",
+    "You MUST return a JSON object with exactly this structure:",
+    plannerSchemaHint,
   ]
     .filter(Boolean)
     .join("\n");
@@ -186,7 +192,7 @@ export function buildExecutorPrompt(input: {
   return [
     "You are the executor role for Arche.",
     "Return only a single JSON object matching the requested schema.",
-    "This role is API-only. Use read_files, run_command, and apply_patch as needed inside the current git worktree. Do not publish changes.",
+    "This role is API-only. Use read_files, run_command, and write_file as needed inside the current git worktree. Do not publish changes.",
     `Execution cycle: ${input.cycle}`,
     `Ticket: ${input.issue.key} - ${input.issue.title}`,
     `Repository: ${input.repository.name}`,
@@ -207,6 +213,9 @@ export function buildExecutorPrompt(input: {
       ? `Latest human response to a previous blocker:\n${input.latestHumanResponse}\n`
       : "",
     "Do not redefine scope. If the approved plan is insufficient or ambiguous, return action=needs_human_input with one concrete question.",
+    "",
+    "You MUST return a JSON action object. Valid formats:",
+    executorActionSchemaHint,
   ]
     .filter(Boolean)
     .join("\n");
@@ -242,6 +251,9 @@ export function buildReviewerPrompt(input: {
       ? `Latest human response to a previous blocker:\n${input.latestHumanResponse}\n`
       : "",
     "Return decision=approve only if the diff is safe and validation findings are resolved. If you need clarification from a human, use decision=needs_human_input and include a question.",
+    "",
+    "You MUST return a JSON object with exactly this structure:",
+    reviewerSchemaHint,
   ]
     .filter(Boolean)
     .join("\n");
@@ -289,6 +301,12 @@ function summarizeProviderAction(action: RoleAction) {
   }
   if (action.action === "run_command") {
     return `Requested command: ${action.command}`;
+  }
+  if (action.action === "write_file") {
+    return `Writing file: ${action.path}`;
+  }
+  if (action.action === "delete_file") {
+    return `Deleting file: ${action.path}`;
   }
   if (action.action === "apply_patch") {
     return "Requested a patch application.";
@@ -385,8 +403,8 @@ export async function runStructuredRole<T extends "planner" | "reviewer">(input:
     const messages = buildRoleMessages(input.prompt);
     const result =
       input.role === "planner"
-        ? await provider.completeStructured(messages, plannerRoleOutputSchema)
-        : await provider.completeStructured(messages, reviewerRoleOutputSchema);
+        ? await provider.completeStructured(messages, plannerRoleOutputSchema, plannerSchemaHint)
+        : await provider.completeStructured(messages, reviewerRoleOutputSchema, reviewerSchemaHint);
     const artifactFiles = await writeProviderArtifacts(
       artifactsPath,
       `${input.role}-cycle-${input.cycle}`,
@@ -465,9 +483,13 @@ export async function runExecutorPatchLoop(input: {
       content: [
         "You are the executor role for Arche.",
         "Return only JSON objects.",
-        "Available actions: read_files, run_command, apply_patch, finish, needs_human_input.",
+        "Available actions: read_files, run_command, write_file, delete_file, finish, needs_human_input.",
+        "To modify files, first read_files to get the current content, then write_file with the complete updated content.",
         "Do not publish changes.",
         "Do not ask to list files; the repository tree is already provided.",
+        "",
+        "Valid JSON action formats:",
+        executorActionSchemaHint,
       ].join("\n"),
     },
     {
@@ -503,7 +525,7 @@ export async function runExecutorPatchLoop(input: {
         currentStep: step + 1,
       });
 
-      const result = await provider.completeAction(messages);
+      const result = await provider.completeAction(messages, executorActionSchemaHint);
       const artifactFiles = await writeProviderArtifacts(
         artifactsPath,
         `executor-cycle-${input.cycle}-step-${step + 1}`,
@@ -578,9 +600,25 @@ export async function runExecutorPatchLoop(input: {
             stderr: truncateText(redactText(commandResult.stderr), 8000),
           };
         }
+      } else if (action.action === "write_file") {
+        try {
+          observation = await provider.writeFile(action.path, action.content);
+        } catch (error) {
+          observation = { error: error instanceof Error ? error.message : "File write failed" };
+        }
+      } else if (action.action === "delete_file") {
+        try {
+          observation = await provider.deleteFile(action.path);
+        } catch (error) {
+          observation = { error: error instanceof Error ? error.message : "File delete failed" };
+        }
       } else if (action.action === "apply_patch") {
-        await git.applyPatch(input.worktreePath, action.patch);
-        observation = { result: "patch_applied" };
+        try {
+          await git.applyPatch(input.worktreePath, action.patch);
+          observation = { result: "patch_applied" };
+        } catch (error) {
+          observation = { error: error instanceof Error ? error.message : "Patch application failed" };
+        }
       } else if (action.action === "needs_human_input") {
         const output: ExecutorRoleOutput = {
           summary: "Executor requires human input.",

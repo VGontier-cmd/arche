@@ -9,6 +9,7 @@ const logger = createLogger({ service: "server" });
 export function createArcheServerApp(): FastifyInstance {
   const app = Fastify({
     logger: false,
+    bodyLimit: 1_048_576, // 1 MB
   });
 
   registerServerHooks(app, logger);

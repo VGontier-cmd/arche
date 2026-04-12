@@ -12,15 +12,12 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "incremental": true,
-    "baseUrl": ".",
-    "jsx": "react-jsx"
+    "baseUrl": "."
   },
   "include": [
     "src/**/*.ts",
-    "src/**/*.tsx",
     "src/**/*.d.ts",
     "tests/**/*.ts",
-    "tests/**/*.tsx",
     "vitest.config.mts"
   ],
   "exclude": ["node_modules", "dist"]

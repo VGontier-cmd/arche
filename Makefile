@@ -6,8 +6,8 @@
 # Built CLI (after `make build`). Override if `arche` is on PATH: `make dev-dist ARCHE_CLI=arche`
 ARCHE_CLI ?= node dist/cli.js
 
-.PHONY: help install build check test dev dev-server dev-worker dev-dashboard \
-	ensure-dist serve-dist worker-dist dashboard-dist run dev-dist install-prereqs
+.PHONY: help install build check test dev dev-server dev-worker \
+	ensure-dist serve-dist worker-dist run dev-dist up install-prereqs
 
 help:
 	@echo "Arche Makefile"
@@ -19,16 +19,15 @@ help:
 	@echo "  make test            vitest"
 	@echo ""
 	@echo "Dev (tsx):"
-	@echo "  make dev             API + worker + dashboard — quit UI stops all"
+	@echo "  make dev             API + worker (Ctrl+C to stop)"
 	@echo "  make dev-server      npm run server"
 	@echo "  make dev-worker      npm run worker"
-	@echo "  make dev-dashboard   npm run cli -- dashboard"
+	@echo "  make up              arche up (server + worker + open dashboard)"
 	@echo ""
 	@echo "Prod / packaged (needs dist/cli.js — \`make build\` once):"
-	@echo "  make run             serve + worker + dashboard (quit UI stops all) — alias: make dev-dist"
+	@echo "  make run             serve + worker (Ctrl+C to stop) — alias: make dev-dist"
 	@echo "  make serve-dist      \`serve\` only"
 	@echo "  make worker-dist     \`worker\` only"
-	@echo "  make dashboard-dist  \`dashboard\` only"
 	@echo "  Tip: after \`npm install -g .\` use   make run ARCHE_CLI=arche"
 
 install-prereqs:
@@ -52,19 +51,17 @@ dev-server:
 dev-worker:
 	npm run worker
 
-dev-dashboard:
-	npm run cli -- dashboard
+up:
+	npm run cli -- up
 
-# Run machine API, worker loop, and operator dashboard from one shell.
-# Uses tsx entrypoints (same as npm run server / worker / cli).
+# Run machine API and worker loop from one shell.
 dev:
 	@bash -c 'set -e; \
-		echo "Starting Arche server + worker + dashboard (quit UI or Ctrl+C to stop)..."; \
+		echo "Starting Arche server + worker (Ctrl+C to stop)..."; \
 		npm run server & server_pid=$$!; \
 		npm run worker & worker_pid=$$!; \
 		trap "kill $$server_pid $$worker_pid 2>/dev/null || true" EXIT INT TERM; \
-		sleep 2; \
-		npm run cli -- dashboard'
+		wait'
 
 ensure-dist:
 	@test -f dist/cli.js || (echo "Missing dist/cli.js — run: make build" >&2 && exit 1)
@@ -75,15 +72,11 @@ serve-dist: ensure-dist
 worker-dist: ensure-dist
 	$(ARCHE_CLI) worker
 
-dashboard-dist: ensure-dist
-	$(ARCHE_CLI) dashboard
-
-# Same orchestration as \`make dev\`, using the built CLI (\`serve\` / \`worker\` / \`dashboard\`).
+# Same orchestration as `make dev`, using the built CLI.
 run dev-dist: ensure-dist
 	@bash -c 'set -e; \
-		echo "Starting Arche (dist) serve + worker + dashboard (quit UI or Ctrl+C to stop)..."; \
+		echo "Starting Arche (dist) serve + worker (Ctrl+C to stop)..."; \
 		$(ARCHE_CLI) serve & server_pid=$$!; \
 		$(ARCHE_CLI) worker & worker_pid=$$!; \
 		trap "kill $$server_pid $$worker_pid 2>/dev/null || true" EXIT INT TERM; \
-		sleep 2; \
-		$(ARCHE_CLI) dashboard'
+		wait'

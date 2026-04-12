@@ -231,40 +231,48 @@ export const defaultConfig: OrchestratorConfig = {
 
 let configPromise: Promise<OrchestratorConfig> | undefined;
 
-function assertNoDeprecatedExecutorConfig(rawConfig: unknown) {
-  if (!rawConfig || typeof rawConfig !== "object") {
-    return;
+async function loadConfig(): Promise<OrchestratorConfig> {
+  let raw: string;
+  try {
+    raw = await readFile(env.ARCHE_CONFIG_PATH, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return defaultConfig;
+    }
+    throw error;
   }
 
-  const workflow = (rawConfig as Record<string, unknown>).workflow;
-  if (!workflow || typeof workflow !== "object") {
-    return;
-  }
-
-  if ("executor_kind" in workflow || "models" in workflow) {
-    throw new Error(
-      "workflow.executor_kind and workflow.models are no longer supported; use executors.defaults and executors.profiles",
-    );
-  }
+  return orchestratorConfigSchema.parse(parse(raw));
 }
 
 export async function getConfig(): Promise<OrchestratorConfig> {
   if (!configPromise) {
-    configPromise = (async () => {
-      let raw: string;
-      try {
-        raw = await readFile(env.ARCHE_CONFIG_PATH, "utf8");
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          return defaultConfig;
-        }
-        throw error;
-      }
-
-      const parsed = parse(raw);
-      assertNoDeprecatedExecutorConfig(parsed);
-      return orchestratorConfigSchema.parse(parsed);
-    })();
+    configPromise = loadConfig();
+    startConfigWatcher();
   }
   return configPromise;
+}
+
+let watcherStarted = false;
+function startConfigWatcher() {
+  if (watcherStarted) return;
+  watcherStarted = true;
+
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  import("node:fs").then(({ watch }) => {
+    const watcher = watch(env.ARCHE_CONFIG_PATH, () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        configPromise = loadConfig();
+      }, 500).unref();
+    });
+    watcher.on("error", () => {
+      // Silently ignore watch errors (file may not exist yet)
+    });
+    // Don't keep the process alive just for config watching
+    watcher.unref();
+  }).catch(() => {
+    // fs.watch not available or file doesn't exist — skip hot-reload
+  });
 }

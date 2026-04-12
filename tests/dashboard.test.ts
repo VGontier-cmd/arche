@@ -5,8 +5,6 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { renderDashboardLayout } from "../src/lib/arche/dashboard-ui.js";
-import { extractPlainText } from "../src/lib/arche/dashboard/tui/plain-text.js";
 import {
   createDashboardControllerState,
   handleDashboardInput,
@@ -467,94 +465,6 @@ describe("dashboard controller", () => {
   });
 });
 
-describe("dashboard ui render", () => {
-  it("renders run-centric sections, overview actions, plan, and findings", () => {
-    const snapshot = makeSnapshot();
-    const overviewState = reconcileDashboardControllerState(
-      createDashboardControllerState(),
-      snapshot,
-    );
-    const dims = {
-      screenWidth: 120,
-      leftHeight: 40,
-      leftWidth: 46,
-      detailHeight: 40,
-      detailWidth: 72,
-      timelineHeight: 20,
-      timelineWidth: 72,
-      stdoutCols: 120,
-    };
-    const overview = renderDashboardLayout(
-      snapshot,
-      overviewState,
-      "Connected",
-      null,
-      dims,
-    );
-
-    expect(extractPlainText(overview.header)).toContain("______");
-    expect(extractPlainText(overview.header)).toContain("OpenRouter");
-    expect(extractPlainText(overview.header)).toContain("GitLab");
-    expect(extractPlainText(overview.header)).toContain("Jira");
-    expect(extractPlainText(overview.header)).toContain("Services");
-    expect(extractPlainText(overview.header)).toContain("Selected");
-    expect(extractPlainText(overview.header)).toContain("PROJ-1");
-    expect(extractPlainText(overview.header)).toContain("awaiting_plan_approval");
-    expect(extractPlainText(overview.left)).toContain("Flow Mix");
-    expect(extractPlainText(overview.left)).toContain("Projects (1)");
-    expect(extractPlainText(overview.left)).toContain("Inbox (2)");
-    expect(extractPlainText(overview.left)).toContain("Active (1)");
-    expect(extractPlainText(overview.left)).toContain("Recent (1)");
-    expect(extractPlainText(overview.left)).toContain("Workers (1)");
-    expect(extractPlainText(overview.detail)).toContain("Workflow Lane");
-    expect(extractPlainText(overview.detail)).toContain("Planner");
-    expect(extractPlainText(overview.detail)).toContain("qwen");
-    expect(extractPlainText(overview.detail)).toContain("Available actions:");
-    expect(extractPlainText(overview.detail)).toContain("Approve plan");
-    expect(extractPlainText(overview.footer)).toContain("Tab");
-    expect(extractPlainText(overview.footer)).toContain("Inbox");
-
-    const planState = {
-      ...overviewState,
-      detailTab: "plan" as const,
-      focusedPane: "detail" as const,
-    };
-    const plan = renderDashboardLayout(
-      snapshot,
-      planState,
-      "Connected",
-      null,
-      dims,
-    );
-    expect(extractPlainText(plan.detail)).toContain("Approved plan:");
-    expect(extractPlainText(plan.detail)).toContain("Plan radar:");
-    expect(extractPlainText(plan.detail)).toContain("Inspect popup");
-    expect(extractPlainText(plan.detail)).toContain("Potential regression on mobile");
-    expect(extractPlainText(plan.detail)).toContain("Confirm spacing with design");
-
-    const findingsState = {
-      ...overviewState,
-      detailTab: "findings" as const,
-    };
-    const findings = renderDashboardLayout(
-      snapshot,
-      findingsState,
-      "Connected",
-      null,
-      dims,
-    );
-    expect(extractPlainText(findings.detail)).toContain("Review summary:");
-    expect(extractPlainText(findings.detail)).toContain("Needs one more patch.");
-    expect(extractPlainText(findings.detail)).toContain("Findings radar:");
-    expect(extractPlainText(findings.detail)).toContain("Guard null branch");
-    expect(extractPlainText(findings.detail)).toContain("/repo/src/popup.ts");
-    expect(extractPlainText(findings.timeline)).toContain("assistant/action");
-    expect(extractPlainText(findings.timeline)).toContain("[log]");
-    expect(extractPlainText(findings.timeline)).toContain("[system]");
-    expect(extractPlainText(findings.timeline)).toContain("[planner#0] completed");
-  });
-});
-
 function makeSnapshot(
   options: {
     selectedRunId?: string;
@@ -727,6 +637,9 @@ function makeSnapshot(
           openQuestions: ["Confirm spacing with design"],
         },
         artifactsPath: null,
+        promptTokens: null,
+        completionTokens: null,
+        estimatedCostUsd: null,
         startedAt: "2026-04-07T09:00:03.000Z",
         finishedAt: "2026-04-07T09:00:04.000Z",
       },
@@ -822,6 +735,9 @@ function makeRun(
     commandHistory: [],
     manualOverride: {},
     cancelRequested: false,
+    promptTokens: null,
+    completionTokens: null,
+    estimatedCostUsd: null,
     workerId: "worker-a",
     leaseOwner: null,
     leaseExpiresAt: null,

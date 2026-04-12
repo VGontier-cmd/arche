@@ -92,6 +92,10 @@ vi.mock("../src/lib/arche/git", () => {
       return;
     }
 
+    async isWorktreeValid() {
+      return true;
+    }
+
     async diffExcerpt() {
       return "";
     }

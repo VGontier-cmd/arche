@@ -5,11 +5,14 @@ import { z } from "zod";
 
 import { resolveArcheProjectEnvPath } from "./install";
 
-loadDotEnv();
+// Load the project-specific env file first so its values take precedence over
+// a generic .env, but neither call uses `override` so that env vars already set
+// in the process (e.g. by tests or container orchestrators) always win.
 const archeEnvFile = resolveArcheProjectEnvPath();
 if (existsSync(archeEnvFile)) {
-  loadDotEnv({ path: archeEnvFile, override: true });
+  loadDotEnv({ path: archeEnvFile });
 }
+loadDotEnv();
 
 function readEnvValue(key: keyof NodeJS.ProcessEnv) {
   const value = process.env[key];
@@ -30,6 +33,8 @@ const envSchema = z.object({
   USER_GITLAB_TOKEN: z.string().optional(),
   /** Optional PAT for HTTPS Git to github.com (username "x-access-token"); DB keeps clean URLs. */
   USER_GITHUB_TOKEN: z.string().optional(),
+  /** HMAC-SHA256 secret to verify Jira webhook payloads. Warning logged if not set. */
+  ARCHE_JIRA_WEBHOOK_SECRET: z.string().optional(),
   ARCHE_RUNTIME_ROOT: z.string().default("./runtime"),
   ARCHE_LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 });
@@ -55,6 +60,7 @@ export const env =
     USER_GITLAB_BASE_URL: readEnvValue("USER_GITLAB_BASE_URL"),
     USER_GITLAB_TOKEN: readEnvValue("USER_GITLAB_TOKEN"),
     USER_GITHUB_TOKEN: readEnvValue("USER_GITHUB_TOKEN"),
+    ARCHE_JIRA_WEBHOOK_SECRET: readEnvValue("ARCHE_JIRA_WEBHOOK_SECRET"),
     ARCHE_RUNTIME_ROOT: readEnvValue("ARCHE_RUNTIME_ROOT"),
     ARCHE_LOG_LEVEL: readEnvValue("ARCHE_LOG_LEVEL"),
   });

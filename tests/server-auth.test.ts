@@ -46,13 +46,13 @@ describe("server auth", () => {
       const [health, ready, profilesUnauthorized, profilesAuthorized, webhook] = await Promise.all([
         fetch(`http://127.0.0.1:${port}/health`),
         fetch(`http://127.0.0.1:${port}/ready`),
-        fetch(`http://127.0.0.1:${port}/profiles`),
-        fetch(`http://127.0.0.1:${port}/profiles`, {
+        fetch(`http://127.0.0.1:${port}/v1/profiles`),
+        fetch(`http://127.0.0.1:${port}/v1/profiles`, {
           headers: {
             authorization: "Bearer server-token",
           },
         }),
-        fetch(`http://127.0.0.1:${port}/webhooks/jira`, {
+        fetch(`http://127.0.0.1:${port}/v1/webhooks/jira`, {
           method: "POST",
           headers: {
             "content-type": "application/json",

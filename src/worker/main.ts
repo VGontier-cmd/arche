@@ -2,7 +2,7 @@ import { hostname } from "node:os";
 
 import { ensureArcheReady } from "../lib/bootstrap";
 import { getConfig } from "../lib/config";
-import { checkpointWal, optimizeDatabase } from "../lib/db/client";
+import { checkpointWal, database, optimizeDatabase } from "../lib/db/client";
 import { createLogger, errorDetails } from "../lib/arche/logging";
 import { claimNextRun, processRun, pruneRunHistory, sweepExpiredRuns } from "../lib/arche/runs";
 import { sleep } from "../lib/arche/utils";
@@ -13,9 +13,135 @@ import {
   markWorkerIdle,
   registerWorker,
   updateWorkerState,
+  deregisterWorker,
 } from "../lib/arche/workers";
 
 const logger = createLogger({ service: "worker" });
+
+let shutdownRequested = false;
+
+async function cleanupOrphanContainers() {
+  try {
+    const { runCommand } = await import("../lib/arche/utils");
+    const result = await runCommand("docker", [
+      "ps", "-a", "--filter", "name=arche-run-", "--format", "{{.Names}}",
+    ]);
+    if (result.returncode !== 0 || !result.stdout.trim()) return;
+
+    const { db } = await import("../lib/db/client");
+    const { runs } = await import("../lib/db/schema");
+    const { inArray } = await import("drizzle-orm");
+
+    const containerNames = result.stdout.trim().split("\n").filter(Boolean);
+    const runIds = containerNames
+      .map((name) => name.replace("arche-run-", ""))
+      .filter(Boolean);
+
+    if (runIds.length === 0) return;
+
+    const activeRuns = await db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(inArray(runs.id, runIds));
+    const activeIds = new Set(activeRuns.map((r) => r.id));
+
+    for (const runId of runIds) {
+      if (!activeIds.has(runId)) {
+        logger.info("worker_loop", "cleaning orphan container", {
+          event: "worker.orphan_container_cleanup",
+          details: { runId, container: `arche-run-${runId}` },
+        });
+        await runCommand("docker", ["rm", "-f", `arche-run-${runId}`]);
+      }
+    }
+  } catch (error) {
+    logger.warn("worker_loop", "orphan container cleanup failed", {
+      event: "worker.orphan_cleanup_failed",
+      details: errorDetails(error),
+    });
+  }
+}
+
+async function cleanupOrphanWorktrees() {
+  try {
+    const { readdir, stat, rm } = await import("node:fs/promises");
+    const config = await getConfig();
+    const runsDir = config.runtime.runs_dir;
+
+    let entries: string[];
+    try {
+      entries = await readdir(runsDir);
+    } catch {
+      return; // runs dir may not exist yet
+    }
+
+    const { db } = await import("../lib/db/client");
+    const { runs } = await import("../lib/db/schema");
+    const { inArray } = await import("drizzle-orm");
+
+    if (entries.length === 0) return;
+
+    const activeRuns = await db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(inArray(runs.id, entries));
+    const activeIds = new Set(activeRuns.map((r) => r.id));
+
+    for (const entry of entries) {
+      if (!activeIds.has(entry)) {
+        const entryPath = `${runsDir}/${entry}`;
+        const stats = await stat(entryPath).catch(() => null);
+        if (stats?.isDirectory()) {
+          logger.info("worker_loop", "cleaning orphan worktree", {
+            event: "worker.orphan_worktree_cleanup",
+            details: { runId: entry, path: entryPath },
+          });
+          await rm(entryPath, { recursive: true, force: true });
+        }
+      }
+    }
+  } catch (error) {
+    logger.warn("worker_loop", "orphan worktree cleanup failed", {
+      event: "worker.orphan_worktree_cleanup_failed",
+      details: errorDetails(error),
+    });
+  }
+}
+
+async function backupDatabase() {
+  try {
+    const { mkdir } = await import("node:fs/promises");
+    const { readdir, rm } = await import("node:fs/promises");
+    const config = await getConfig();
+    const backupDir = `${config.runtime.root_dir}/backups`;
+    await mkdir(backupDir, { recursive: true });
+
+    const now = new Date();
+    const timestamp = now.toISOString().replace(/[:.]/g, "-").slice(0, 16);
+    const backupPath = `${backupDir}/arche-${timestamp}.db`;
+
+    await database.backup(backupPath);
+
+    // Keep only 3 most recent backups
+    const files = (await readdir(backupDir))
+      .filter((f) => f.startsWith("arche-") && f.endsWith(".db"))
+      .sort()
+      .reverse();
+    for (const file of files.slice(3)) {
+      await rm(`${backupDir}/${file}`, { force: true });
+    }
+
+    logger.info("worker_loop", "database backup completed", {
+      event: "worker.backup_completed",
+      details: { path: backupPath },
+    });
+  } catch (error) {
+    logger.warn("worker_loop", "database backup failed", {
+      event: "worker.backup_failed",
+      details: errorDetails(error),
+    });
+  }
+}
 
 export async function startWorker() {
   await ensureArcheReady();
@@ -24,6 +150,19 @@ export async function startWorker() {
   const host = hostname();
   const workerId = buildWorkerId(host, process.pid);
   let cycles = 0;
+  let lastBackupHour = -1;
+
+  // Graceful shutdown handlers
+  const handleShutdown = () => {
+    if (shutdownRequested) return;
+    shutdownRequested = true;
+    logger.info("worker_loop", "shutdown requested, finishing current work", {
+      event: "worker.shutdown_requested",
+      details: { workerId },
+    });
+  };
+  process.on("SIGTERM", handleShutdown);
+  process.on("SIGINT", handleShutdown);
 
   await registerWorker({
     workerId,
@@ -40,7 +179,11 @@ export async function startWorker() {
     details: { workerId },
   });
 
-  while (true) {
+  // Startup cleanup
+  await cleanupOrphanContainers();
+  await cleanupOrphanWorktrees();
+
+  while (!shutdownRequested) {
     try {
       cycles += 1;
       await markWorkerIdle(workerId);
@@ -69,6 +212,14 @@ export async function startWorker() {
       if (cycles % 100 === 0) {
         await checkpointWal("PASSIVE");
       }
+
+      // Hourly database backup
+      const currentHour = new Date().getHours();
+      if (currentHour !== lastBackupHour) {
+        lastBackupHour = currentHour;
+        await backupDatabase();
+      }
+
       const run = await claimNextRun(workerId, config.worker.lease_ttl_seconds);
       if (run) {
         await updateWorkerState(workerId, {
@@ -97,4 +248,11 @@ export async function startWorker() {
     }
     await sleep(config.worker.poll_interval_seconds * 1000);
   }
+
+  // Graceful shutdown: deregister worker
+  logger.info("worker_loop", "worker shutting down", {
+    event: "worker.shutdown",
+    details: { workerId },
+  });
+  await deregisterWorker(workerId);
 }

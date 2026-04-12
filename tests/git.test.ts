@@ -1,3 +1,7 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import type { OrchestratorConfig } from "../src/lib/config";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -199,5 +203,76 @@ describe("GitManager", () => {
         title: "Fix popup alignment",
       } as never),
     ).toBe("PROJ-321-fix-popup-alignment");
+  });
+});
+
+describe("Begin/End patch conversion", () => {
+  let workspace: string;
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), "arche-patch-"));
+  });
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true });
+  });
+
+  it("detects Begin Patch format", async () => {
+    const { isBeginEndPatchFormat } = await import("../src/lib/arche/git");
+    expect(
+      isBeginEndPatchFormat('*** Begin Patch\n*** Update File: package.json\n@@\n+new\n*** End Patch'),
+    ).toBe(true);
+    expect(
+      isBeginEndPatchFormat('diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-old\n+new'),
+    ).toBe(false);
+  });
+
+  it("converts an Update File block to unified diff", async () => {
+    const { convertBeginEndPatchToUnifiedDiff } = await import("../src/lib/arche/git");
+
+    await writeFile(
+      join(workspace, "package.json"),
+      [
+        '{',
+        '  "name": "test",',
+        '  "version": "0.1.0",',
+        '  "private": true,',
+        '  "type": "module"',
+        '}',
+      ].join("\n"),
+      "utf8",
+    );
+
+    const beginEndPatch = [
+      "*** Begin Patch",
+      "*** Update File: package.json",
+      "@@",
+      '   "version": "0.1.0",',
+      '   "private": true,',
+      '+  "author": "VGontier-cmd",',
+      '   "type": "module"',
+      "*** End Patch",
+    ].join("\n");
+
+    const result = await convertBeginEndPatchToUnifiedDiff(workspace, beginEndPatch);
+    expect(result).toContain("diff --git a/package.json b/package.json");
+    expect(result).toContain("--- a/package.json");
+    expect(result).toContain("+++ b/package.json");
+    expect(result).toContain('+  "author": "VGontier-cmd",');
+  });
+
+  it("converts an Add File block to unified diff", async () => {
+    const { convertBeginEndPatchToUnifiedDiff } = await import("../src/lib/arche/git");
+
+    const beginEndPatch = [
+      "*** Begin Patch",
+      "*** Add File: src/new-file.ts",
+      "+export const hello = 'world';",
+      "*** End Patch",
+    ].join("\n");
+
+    const result = await convertBeginEndPatchToUnifiedDiff(workspace, beginEndPatch);
+    expect(result).toContain("new file mode 100644");
+    expect(result).toContain("+export const hello = 'world';");
   });
 });

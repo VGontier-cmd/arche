@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arche Dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117; --bg2: #161b22; --bg3: #21262d;
+    --fg: #c9d1d9; --fg2: #8b949e; --fg3: #484f58;
+    --accent: #58a6ff; --green: #3fb950; --red: #f85149;
+    --orange: #d29922; --purple: #bc8cff; --cyan: #39d2c0;
+    --border: #30363d; --radius: 6px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 13px; line-height: 1.5; color: var(--fg); background: var(--bg);
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 20px; background: var(--bg2); border-bottom: 1px solid var(--border);
+  }
+  .header h1 { font-size: 16px; font-weight: 600; color: var(--fg); }
+  .header .meta { font-size: 11px; color: var(--fg2); }
+
+  .kpis {
+    display: flex; gap: 12px; padding: 16px 20px; flex-wrap: wrap;
+  }
+  .kpi {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 12px 16px; min-width: 120px; flex: 1;
+  }
+  .kpi .label { font-size: 11px; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.5px; }
+  .kpi .value { font-size: 24px; font-weight: 700; margin-top: 4px; }
+  .kpi .value.green { color: var(--green); }
+  .kpi .value.red { color: var(--red); }
+  .kpi .value.orange { color: var(--orange); }
+  .kpi .value.accent { color: var(--accent); }
+
+  .main { display: flex; height: calc(100vh - 130px); }
+  .sidebar {
+    width: 380px; min-width: 300px; border-right: 1px solid var(--border);
+    overflow-y: auto; background: var(--bg);
+  }
+  .detail { flex: 1; overflow-y: auto; padding: 16px 20px; }
+
+  .section-title {
+    font-size: 11px; font-weight: 600; color: var(--fg2); text-transform: uppercase;
+    letter-spacing: 0.5px; padding: 12px 16px 4px; border-bottom: 1px solid var(--border);
+  }
+
+  .run-item {
+    display: flex; align-items: center; gap: 8px; padding: 8px 16px;
+    border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s;
+  }
+  .run-item:hover { background: var(--bg2); }
+  .run-item.selected { background: var(--bg3); border-left: 2px solid var(--accent); }
+
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;
+    white-space: nowrap;
+  }
+  .badge.pending { background: #1f2937; color: var(--fg2); }
+  .badge.running, .badge.executing, .badge.planning, .badge.reviewing { background: #0c2d6b; color: var(--accent); }
+  .badge.awaiting_plan_approval, .badge.awaiting_publish_approval, .badge.needs_human_input { background: #3b2508; color: var(--orange); }
+  .badge.success { background: #0d2818; color: var(--green); }
+  .badge.failed, .badge.cancelled, .badge.publish_rejected { background: #3c1116; color: var(--red); }
+
+  .run-info { flex: 1; min-width: 0; }
+  .run-info .ticket { font-weight: 600; color: var(--fg); }
+  .run-info .repo { color: var(--fg2); font-size: 11px; }
+  .run-info .time { color: var(--fg3); font-size: 10px; }
+
+  .detail h2 { font-size: 14px; margin-bottom: 12px; color: var(--fg); }
+  .detail-section { margin-bottom: 20px; }
+  .detail-section h3 {
+    font-size: 11px; font-weight: 600; color: var(--fg2); text-transform: uppercase;
+    margin-bottom: 8px; letter-spacing: 0.5px;
+  }
+
+  .meta-grid {
+    display: grid; grid-template-columns: auto 1fr; gap: 4px 12px;
+    font-size: 12px;
+  }
+  .meta-grid .label { color: var(--fg2); }
+  .meta-grid .val { color: var(--fg); }
+
+  .tasks-list { display: flex; flex-direction: column; gap: 4px; }
+  .task-item {
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+    background: var(--bg2); border-radius: var(--radius); font-size: 12px;
+  }
+  .task-item .role { color: var(--purple); font-weight: 600; min-width: 70px; }
+  .task-item .model { color: var(--fg2); }
+  .task-item .cost { color: var(--cyan); margin-left: auto; font-weight: 600; }
+
+  .timeline {
+    display: flex; flex-direction: column; gap: 2px; font-size: 11px;
+    max-height: 400px; overflow-y: auto;
+  }
+  .timeline-item {
+    display: flex; gap: 8px; padding: 3px 8px; border-radius: 3px;
+  }
+  .timeline-item:hover { background: var(--bg2); }
+  .timeline-item .ts { color: var(--fg3); min-width: 80px; white-space: nowrap; }
+  .timeline-item .src { min-width: 60px; font-weight: 600; }
+  .timeline-item .src.event { color: var(--accent); }
+  .timeline-item .src.log { color: var(--fg2); }
+  .timeline-item .src.command { color: var(--orange); }
+  .timeline-item .msg { color: var(--fg); word-break: break-all; }
+
+  .actions {
+    display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;
+  }
+  .btn {
+    padding: 6px 14px; border-radius: var(--radius); border: 1px solid var(--border);
+    background: var(--bg2); color: var(--fg); cursor: pointer; font-size: 12px;
+    font-family: inherit; transition: background 0.1s;
+  }
+  .btn:hover { background: var(--bg3); }
+  .btn.primary { background: #1f6feb; border-color: #388bfd; color: #fff; }
+  .btn.primary:hover { background: #388bfd; }
+  .btn.danger { background: #3c1116; border-color: #f85149; color: var(--red); }
+  .btn.danger:hover { background: #5a1a22; }
+
+  .empty { color: var(--fg3); padding: 20px; text-align: center; }
+  .workers-bar {
+    display: flex; gap: 8px; align-items: center; font-size: 11px; color: var(--fg2);
+  }
+  .worker-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .worker-dot.online { background: var(--green); }
+  .worker-dot.offline { background: var(--red); }
+
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    z-index: 100; align-items: center; justify-content: center;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 20px; min-width: 400px; max-width: 500px;
+  }
+  .modal h3 { margin-bottom: 12px; }
+  .modal textarea {
+    width: 100%; min-height: 80px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--fg); padding: 8px; font-family: inherit;
+    font-size: 12px; resize: vertical;
+  }
+  .modal .actions { margin-top: 12px; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <h1>Arche Dashboard</h1>
+    <div class="meta">
+      <span class="workers-bar" id="workers-bar"></span>
+      <span id="refresh-time"></span>
+    </div>
+  </div>
+  <div class="kpis" id="kpis"></div>
+  <div class="main">
+    <div class="sidebar" id="sidebar"></div>
+    <div class="detail" id="detail"><div class="empty">Select a run to view details</div></div>
+  </div>
+
+  <div class="modal-overlay" id="respond-modal">
+    <div class="modal">
+      <h3 id="respond-modal-title">Respond to Run</h3>
+      <textarea id="respond-text" placeholder="Type your feedback..."></textarea>
+      <div class="actions">
+        <button class="btn primary" onclick="submitRespond()">Send</button>
+        <button class="btn" onclick="closeModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+const API = window.location.origin;
+let state = null;
+let selectedRunId = null;
+
+function formatTime(ts) {
+  if (!ts) return '-';
+  const d = new Date(ts);
+  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function formatDuration(start, end) {
+  if (!start) return '-';
+  const s = new Date(start).getTime();
+  const e = end ? new Date(end).getTime() : Date.now();
+  const sec = Math.floor((e - s) / 1000);
+  if (sec < 60) return sec + 's';
+  return Math.floor(sec / 60) + 'm ' + (sec % 60) + 's';
+}
+
+function formatCost(usd) {
+  if (usd === null || usd === undefined) return '';
+  return '$' + Number(usd).toFixed(4);
+}
+
+function statusClass(status) {
+  return (status || 'pending').replace(/_/g, '_');
+}
+
+function renderKpis(snap) {
+  const s = snap.summary;
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><div class="label">Inbox</div><div class="value orange">${s.inboxCount}</div></div>
+    <div class="kpi"><div class="label">Active</div><div class="value accent">${s.activeCount}</div></div>
+    <div class="kpi"><div class="label">Failed</div><div class="value red">${s.failedCount}</div></div>
+    <div class="kpi"><div class="label">Workers</div><div class="value green">${s.onlineWorkerCount}/${s.workerCount}</div></div>
+  `;
+
+  const wb = snap.workers.map(w =>
+    `<span class="worker-dot ${w.offline ? 'offline' : 'online'}"></span>${w.name}`
+  ).join(' ');
+  document.getElementById('workers-bar').innerHTML = wb;
+  document.getElementById('refresh-time').textContent = formatTime(snap.refreshedAt);
+}
+
+function renderSidebar(snap) {
+  const sections = [
+    { title: 'Inbox', runs: snap.inboxRuns },
+    { title: 'Active', runs: snap.activeRuns },
+    { title: 'Recent', runs: snap.recentRuns },
+  ];
+
+  let html = '';
+  for (const sec of sections) {
+    if (sec.runs.length === 0) continue;
+    html += `<div class="section-title">${sec.title} (${sec.runs.length})</div>`;
+    for (const run of sec.runs) {
+      const sel = run.id === selectedRunId ? ' selected' : '';
+      const cost = run.estimatedCostUsd ? ` · ${formatCost(run.estimatedCostUsd)}` : '';
+      html += `<div class="run-item${sel}" onclick="selectRun('${run.id}')">
+        <span class="badge ${statusClass(run.status)}">${run.status}</span>
+        <div class="run-info">
+          <div class="ticket">${esc(run.ticketKey)}</div>
+          <div class="repo">${esc(run.repoName || '-')}${cost}</div>
+          <div class="time">${formatTime(run.createdAt)} · ${formatDuration(run.startedAt, run.finishedAt)}</div>
+        </div>
+      </div>`;
+    }
+  }
+  if (!html) html = '<div class="empty">No runs</div>';
+  document.getElementById('sidebar').innerHTML = html;
+}
+
+function renderDetail(snap) {
+  const run = snap.selectedRun;
+  if (!run) {
+    document.getElementById('detail').innerHTML = '<div class="empty">Select a run to view details</div>';
+    return;
+  }
+
+  let html = `<h2><span class="badge ${statusClass(run.status)}">${run.status}</span> ${esc(run.ticketKey)}: ${esc(run.ticketTitle || '')}</h2>`;
+
+  // Meta
+  html += `<div class="detail-section"><h3>Details</h3><div class="meta-grid">
+    <span class="label">Run ID</span><span class="val">${run.id}</span>
+    <span class="label">Repository</span><span class="val">${esc(run.repoName || '-')}</span>
+    <span class="label">Branch</span><span class="val">${esc(run.branchName || '-')}</span>
+    <span class="label">Phase</span><span class="val">${esc(run.currentRole || '-')} cycle ${run.currentCycle}</span>
+    <span class="label">Worker</span><span class="val">${esc(run.workerId || '-')}</span>
+    <span class="label">Started</span><span class="val">${formatTime(run.startedAt)}</span>
+    <span class="label">Duration</span><span class="val">${formatDuration(run.startedAt, run.finishedAt)}</span>`;
+  if (run.estimatedCostUsd !== null && run.estimatedCostUsd !== undefined) {
+    html += `<span class="label">Cost</span><span class="val" style="color:var(--cyan)">${formatCost(run.estimatedCostUsd)}</span>`;
+  }
+  if (run.promptTokens) {
+    html += `<span class="label">Tokens</span><span class="val">${run.promptTokens?.toLocaleString() || 0} in / ${run.completionTokens?.toLocaleString() || 0} out</span>`;
+  }
+  if (run.mrUrl) {
+    html += `<span class="label">MR</span><span class="val"><a href="${esc(run.mrUrl)}" target="_blank">${esc(run.mrUrl)}</a></span>`;
+  }
+  if (run.failureReason) {
+    html += `<span class="label">Failure</span><span class="val" style="color:var(--red)">${esc(run.failureReason)}</span>`;
+  }
+  html += `</div></div>`;
+
+  // Actions
+  const acts = [];
+  if (run.status === 'awaiting_plan_approval') {
+    acts.push(`<button class="btn primary" onclick="runAction('${run.id}','approve-plan')">Approve Plan</button>`);
+    acts.push(`<button class="btn" onclick="openRespondModal('${run.id}','Request changes to the plan')">Request Changes</button>`);
+    acts.push(`<button class="btn danger" onclick="runAction('${run.id}','cancel')">Cancel</button>`);
+  }
+  if (run.status === 'awaiting_publish_approval') {
+    acts.push(`<button class="btn primary" onclick="runAction('${run.id}','approve-publish')">Approve Publish</button>`);
+    acts.push(`<button class="btn danger" onclick="runAction('${run.id}','reject-publish')">Reject</button>`);
+  }
+  if (run.status === 'needs_human_input') {
+    acts.push(`<button class="btn primary" onclick="openRespondModal('${run.id}','Respond to the run')">Respond</button>`);
+    acts.push(`<button class="btn danger" onclick="runAction('${run.id}','cancel')">Cancel</button>`);
+  }
+  if (run.status === 'failed') {
+    acts.push(`<button class="btn" onclick="runAction('${run.id}','retry')">Retry</button>`);
+  }
+  const terminalStatuses = ['success','failed','cancelled','publish_rejected','awaiting_plan_approval','awaiting_publish_approval','needs_human_input'];
+  if (!terminalStatuses.includes(run.status)) {
+    acts.push(`<button class="btn danger" onclick="runAction('${run.id}','cancel')">Cancel</button>`);
+  }
+  if (acts.length) {
+    html += `<div class="detail-section"><h3>Actions</h3><div class="actions">${acts.join('')}</div></div>`;
+  }
+
+  // Plan
+  if (run.planMarkdown) {
+    html += `<div class="detail-section"><h3>Plan</h3><pre style="white-space:pre-wrap;color:var(--fg2);font-size:11px;max-height:200px;overflow:auto;background:var(--bg2);padding:8px;border-radius:var(--radius)">${esc(run.planMarkdown)}</pre></div>`;
+  }
+
+  // Pending question
+  if (run.pendingQuestion) {
+    html += `<div class="detail-section"><h3>Pending Question</h3><pre style="white-space:pre-wrap;color:var(--orange);font-size:12px;background:var(--bg2);padding:8px;border-radius:var(--radius)">${esc(run.pendingQuestion)}</pre></div>`;
+  }
+
+  // Tasks
+  if (snap.tasks.length > 0) {
+    html += `<div class="detail-section"><h3>Tasks</h3><div class="tasks-list">`;
+    for (const t of snap.tasks) {
+      const cost = t.estimatedCostUsd ? formatCost(t.estimatedCostUsd) : '';
+      html += `<div class="task-item">
+        <span class="badge ${statusClass(t.status)}">${t.status}</span>
+        <span class="role">${esc(t.role)}</span>
+        <span class="model">${esc(t.modelName || '-')}</span>
+        ${cost ? `<span class="cost">${cost}</span>` : ''}
+      </div>`;
+    }
+    html += `</div></div>`;
+  }
+
+  // Timeline
+  if (snap.timeline.length > 0) {
+    html += `<div class="detail-section"><h3>Timeline</h3><div class="timeline">`;
+    for (const item of snap.timeline.slice(-100)) {
+      const detail = item.detail ? `<span class="detail" style="color:var(--fg2);font-size:11px;display:block;margin-left:90px;white-space:pre-wrap;max-height:60px;overflow:auto">${esc(item.detail)}</span>` : '';
+      html += `<div class="timeline-item">
+        <span class="ts">${formatTime(item.timestamp)}</span>
+        <span class="src ${item.source}">${item.source}</span>
+        <span class="msg">${esc(item.title || '')}</span>
+        ${detail}
+      </div>`;
+    }
+    html += `</div></div>`;
+  }
+
+  document.getElementById('detail').innerHTML = html;
+}
+
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
+function selectRun(id) {
+  selectedRunId = id;
+  refresh();
+}
+
+async function runAction(runId, action) {
+  try {
+    const res = await fetch(`${API}/v1/runs/${runId}/${action}`, { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      alert(`Action failed: ${body.error || res.statusText}`);
+    }
+    await refresh();
+  } catch (e) { alert('Action failed: ' + e.message); }
+}
+
+let respondRunId = null;
+function openRespondModal(runId, title) {
+  respondRunId = runId;
+  document.getElementById('respond-text').value = '';
+  document.getElementById('respond-modal-title').textContent = title || 'Respond to Run';
+  document.getElementById('respond-modal').classList.add('active');
+}
+function closeModal() {
+  document.getElementById('respond-modal').classList.remove('active');
+}
+async function submitRespond() {
+  const message = document.getElementById('respond-text').value.trim();
+  if (!message) return;
+  closeModal();
+  try {
+    await fetch(`${API}/v1/runs/${respondRunId}/respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    });
+    await refresh();
+  } catch (e) { alert('Respond failed: ' + e.message); }
+}
+
+async function refresh() {
+  try {
+    const url = selectedRunId
+      ? `${API}/v1/dashboard/snapshot/${selectedRunId}`
+      : `${API}/v1/dashboard/snapshot`;
+    const res = await fetch(url);
+    if (!res.ok) return;
+    state = await res.json();
+    if (!selectedRunId && state.selectedRunId) {
+      selectedRunId = state.selectedRunId;
+    }
+    renderKpis(state);
+    renderSidebar(state);
+    renderDetail(state);
+  } catch (e) { console.error('refresh failed', e); }
+}
+
+refresh();
+setInterval(refresh, 3000);
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeModal();
+});
+</script>
+</body>
+</html>

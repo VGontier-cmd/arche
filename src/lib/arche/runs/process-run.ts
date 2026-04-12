@@ -354,9 +354,39 @@ async function ensureRunWorktree(
   deps: RunProcessDeps,
 ) {
   if (run.worktreePath && run.branchName) {
+    // Verify the worktree still exists on disk (it may have been cleaned up
+    // between worker leases, e.g. after a retained worktree was removed).
+    if (await git.isWorktreeValid(run.worktreePath)) {
+      return {
+        run,
+        worktreePath: run.worktreePath,
+        branchName: run.branchName,
+      };
+    }
+
+    // Recreate the worktree from scratch.
+    const worktreePath = await git.createWorktree(repository, run.branchName, run.ticketKey);
+    await ensureDirectory(dirname(worktreePath));
+    const [updated] = await withSqliteWriteRetry(() =>
+      db
+        .update(runs)
+        .set({
+          worktreePath,
+          worktreeRetained: false,
+          updatedAt: new Date(),
+        })
+        .where(eq(runs.id, run.id))
+        .returning(),
+    );
+    await deps.appendRunEvent(run.id, "worktree.recreated", {
+      branchName: run.branchName,
+      worktreePath,
+      reason: "previous worktree was missing or invalid",
+    });
+    await deps.appendSystemRunLog(run.id, `worktree recreated at ${worktreePath} (previous was invalid)`);
     return {
-      run,
-      worktreePath: run.worktreePath,
+      run: updated,
+      worktreePath,
       branchName: run.branchName,
     };
   }

@@ -168,6 +168,12 @@ export async function markWorkerError(workerId: string, error: string) {
   });
 }
 
+export async function deregisterWorker(workerId: string) {
+  await withSqliteWriteRetry(() =>
+    db.delete(workers).where(eq(workers.id, workerId)),
+  );
+}
+
 export async function listWorkerRecentRuns(workerId: string, limit = 10) {
   return db
     .select()
