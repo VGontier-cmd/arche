@@ -99,6 +99,7 @@ describe("GitManager", () => {
       "-C",
       "/tmp/worktree",
       "push",
+      "--force-with-lease",
       "-u",
       "origin",
       "jira/PROJ-123-fix-popup-alignment",

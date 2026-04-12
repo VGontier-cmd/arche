@@ -16,7 +16,8 @@
     "arche": "./dist/cli.js"
   },
   "scripts": {
-    "build": "tsup --config tsup.config.ts && mkdir -p dist/web && cp src/lib/arche/server/web/index.html dist/web/index.html",
+    "build": "tsup --config tsup.config.ts && cd web && npm run build",
+    "build:web": "cd web && npm run build",
     "prepack": "npm run build",
     "cli": "tsx src/cli.ts",
     "server": "tsx src/bin/server.ts",
@@ -30,6 +31,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.1.0",
+    "@fastify/static": "^9.1.0",
     "@openrouter/sdk": "^0.11.2",
     "better-sqlite3": "^12.8.0",
     "commander": "^14.0.1",

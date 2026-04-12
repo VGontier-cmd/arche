@@ -455,14 +455,12 @@ async function ensureRunSandbox(
   };
 }
 
-async function publishApprovedRun(
+async function pushApprovedRun(
   input: {
     run: RunRow;
     repository: RepositoryRow;
     issue: JiraIssue;
     git: GitManager;
-    gitlab: GitLabClient;
-    jira: JiraClient;
     workerId: string;
   },
   deps: RunProcessDeps,
@@ -496,28 +494,8 @@ async function publishApprovedRun(
   await deps.appendRunEvent(input.run.id, "git.publish_succeeded", {
     branchName: input.run.branchName,
   });
-  const mrUrl = await input.gitlab.createMergeRequest(
-    input.repository,
-    input.run.branchName,
-    input.issue,
-    input.run.summary ?? input.run.latestReviewSummary ?? "Automated change ready for review.",
-  );
-  await withSqliteWriteRetry(() =>
-    db
-      .update(runs)
-      .set({
-        mrUrl,
-        updatedAt: new Date(),
-      })
-      .where(eq(runs.id, input.run.id)),
-  );
-  await deps.appendRunEvent(input.run.id, "gitlab.merge_request_created", {
-    mrUrl,
-    branchName: input.run.branchName,
-  });
-  await input.jira.commentIssue(input.issue.key, `MR created: ${mrUrl}`).catch(() => undefined);
-  await deps.appendSystemRunLog(input.run.id, `merge request created ${mrUrl}`);
-  await deps.transitionRun(input.run.id, "success", {}, { mrUrl });
+  await deps.appendSystemRunLog(input.run.id, `branch ${input.run.branchName} pushed`);
+  await deps.transitionRun(input.run.id, "pushed");
 }
 
 function resolveRepositoryCommandPolicies(
@@ -1034,7 +1012,7 @@ async function cleanupProcessedRun(input: {
   }
 
   if (input.repository && finalRun.worktreePath) {
-    if (finalRun.status === "success") {
+    if (finalRun.status === "success" || finalRun.status === "pushed") {
       try {
         await input.deps.appendSystemRunLog(
           input.runId,
@@ -1185,14 +1163,12 @@ export async function processRunWithDeps(
         run = worktree.run;
 
         if (run.status === "publish_approved") {
-          await publishApprovedRun(
+          await pushApprovedRun(
             {
               run,
               repository: resolvedRepository,
               issue,
               git,
-              gitlab,
-              jira,
               workerId,
             },
             deps,

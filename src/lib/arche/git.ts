@@ -473,7 +473,7 @@ export class GitManager {
 
     const commands = [
       ["-C", worktreePath, "commit", "-m", `${issue.key}: ${issue.title}`],
-      ["-C", worktreePath, "push", "-u", "origin", branchName],
+      ["-C", worktreePath, "push", "--force-with-lease", "-u", "origin", branchName],
     ];
 
     for (const args of commands) {

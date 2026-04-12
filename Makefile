@@ -6,7 +6,7 @@
 # Built CLI (after `make build`). Override if `arche` is on PATH: `make dev-dist ARCHE_CLI=arche`
 ARCHE_CLI ?= node dist/cli.js
 
-.PHONY: help install build check test dev dev-server dev-worker \
+.PHONY: help install build check test dev dev-server dev-worker dev-web \
 	ensure-dist serve-dist worker-dist run dev-dist up install-prereqs
 
 help:
@@ -22,6 +22,7 @@ help:
 	@echo "  make dev             API + worker (Ctrl+C to stop)"
 	@echo "  make dev-server      npm run server"
 	@echo "  make dev-worker      npm run worker"
+	@echo "  make dev-web         Vite dev server for dashboard (port 5173)"
 	@echo "  make up              arche up (server + worker + open dashboard)"
 	@echo ""
 	@echo "Prod / packaged (needs dist/cli.js — \`make build\` once):"
@@ -50,6 +51,9 @@ dev-server:
 
 dev-worker:
 	npm run worker
+
+dev-web:
+	cd web && npm run dev
 
 up:
 	npm run cli -- up

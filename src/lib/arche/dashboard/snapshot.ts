@@ -41,7 +41,7 @@ const INBOX_STATUSES = new Set([
   "needs_human_input",
   "awaiting_publish_approval",
 ]);
-const TERMINAL_STATUSES = new Set(["success", "failed", "cancelled", "publish_rejected"]);
+const TERMINAL_STATUSES = new Set(["success", "pushed", "failed", "cancelled", "publish_rejected"]);
 const FAILED_STATUSES = new Set(["failed", "cancelled", "publish_rejected"]);
 
 export type DashboardWorker = {

@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { sql } from "drizzle-orm";
@@ -35,6 +35,7 @@ import {
   listRunLogs,
   listRunLogsPage,
   listRuns,
+  createMergeRequestForRun,
   rejectPublish,
   respondToRun,
   retryRun,
@@ -49,15 +50,10 @@ let dashboardHtmlCache: string | null = null;
 function loadDashboardHtml(): string {
   if (dashboardHtmlCache) return dashboardHtmlCache;
   const root = archePackageRootDir();
-  const candidates = [
-    join(root, "dist", "web", "index.html"),
-    join(root, "src", "lib", "arche", "server", "web", "index.html"),
-  ];
-  for (const path of candidates) {
-    try {
-      dashboardHtmlCache = readFileSync(path, "utf8");
-      return dashboardHtmlCache;
-    } catch { /* try next */ }
+  const indexPath = join(root, "dist", "web", "index.html");
+  if (existsSync(indexPath)) {
+    dashboardHtmlCache = readFileSync(indexPath, "utf8");
+    return dashboardHtmlCache;
   }
   dashboardHtmlCache = "<html><body><h1>Dashboard HTML not found. Run: npm run build</h1></body></html>";
   return dashboardHtmlCache;
@@ -215,6 +211,11 @@ export function registerServerRoutes(app: FastifyInstance) {
       return rejectPublish(request.params.id);
     },
   );
+
+  app.post<{ Params: { id: string } }>("/v1/runs/:id/create-mr", async (request) => {
+    await ensureArcheReady();
+    return createMergeRequestForRun(request.params.id);
+  });
 
   app.post<{ Params: { id: string } }>("/v1/runs/:id/respond", async (request) => {
     await ensureArcheReady();

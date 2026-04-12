@@ -109,7 +109,7 @@ export function buildActionDescriptor(
       label: "Approve publish",
       hotkey: "a",
       confirmationTitle: `Approve publish for ${run.ticketKey}?`,
-      confirmationBody: "This queues the run for commit, push, and MR creation.",
+      confirmationBody: "This queues the run for commit and push. You can create a MR afterwards.",
     };
   }
   if (kind === "reject_publish") {

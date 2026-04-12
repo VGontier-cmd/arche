@@ -1,0 +1,90 @@
+@import "tailwindcss";
+@plugin "daisyui" {
+  themes: dark --default;
+}
+
+@theme {
+  --font-mono: "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+}
+
+:root {
+  --color-base-100: #0d1117;
+  --color-base-200: #161b22;
+  --color-base-300: #21262d;
+  --color-base-content: #c9d1d9;
+  --color-primary: #58a6ff;
+  --color-success: #3fb950;
+  --color-error: #f85149;
+  --color-warning: #d29922;
+  --color-accent: #bc8cff;
+  --color-info: #39d2c0;
+  --border-color: #30363d;
+  --rounded-box: 6px;
+  --rounded-btn: 6px;
+  --rounded-badge: 10px;
+
+  /* Secondary text colors not mapped by DaisyUI */
+  --fg2: #8b949e;
+  --fg3: #484f58;
+}
+
+body {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-base-content);
+  background: var(--color-base-100);
+}
+
+a {
+  color: #58a6ff;
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+.btn-default {
+  padding: 6px 14px;
+  border-radius: var(--rounded-btn);
+  border: 1px solid var(--border-color);
+  background: var(--color-base-200);
+  color: var(--color-base-content);
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+  transition: background 0.1s;
+}
+.btn-default:hover {
+  background: var(--color-base-300);
+}
+
+.btn-primary {
+  padding: 6px 14px;
+  border-radius: var(--rounded-btn);
+  border: 1px solid #388bfd;
+  background: #1f6feb;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+  transition: background 0.1s;
+}
+.btn-primary:hover {
+  background: #388bfd;
+}
+
+.btn-danger {
+  padding: 6px 14px;
+  border-radius: var(--rounded-btn);
+  border: 1px solid #f85149;
+  background: #3c1116;
+  color: #f85149;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+  transition: background 0.1s;
+}
+.btn-danger:hover {
+  background: #5a1a22;
+}

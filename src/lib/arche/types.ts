@@ -13,6 +13,7 @@ export const RUN_STATES = [
   "running_agent",
   "validating_changes",
   "publishing",
+  "pushed",
   "success",
   "failed",
   "cancelled",

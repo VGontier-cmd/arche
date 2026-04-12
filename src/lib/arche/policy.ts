@@ -20,7 +20,7 @@ export const ACTIVE_RUN_STATES: RunStatus[] = [
   "validating_changes",
 ];
 
-export const TERMINAL_RUN_STATES: RunStatus[] = ["success", "failed", "cancelled", "publish_rejected"];
+export const TERMINAL_RUN_STATES: RunStatus[] = ["success", "pushed", "failed", "cancelled", "publish_rejected"];
 
 export function evaluateIssueEligibility(
   issue: JiraIssue,

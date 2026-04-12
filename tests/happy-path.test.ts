@@ -649,24 +649,14 @@ describe("workflow orchestration", () => {
 
     const processed = await runsModule.processRun(accepted.runId!, "worker-1");
     const completedRun = await runsModule.getRunById(accepted.runId!);
-    expect(processed.status).toBe("success");
+    expect(processed.status).toBe("pushed");
     expect(processed.summary).toBe("Implemented the popup alignment fix.");
-    expect(processed.mrUrl).toBe("https://gitlab.example.com/mr/jira-PROJ-123-fix-popup-alignment");
     expect(processed.branchName).toBe("jira/PROJ-123-fix-popup-alignment");
     expect(completedRun.worktreeRetained).toBe(false);
     expect(completedRun.worktreePath).toBeNull();
     expect(completedRun.artifactsPath).toContain(`/runs/${accepted.runId}`);
     expect(state.committedBranches).toEqual(["jira/PROJ-123-fix-popup-alignment"]);
-    expect(state.mergeRequests).toEqual([
-      {
-        branchName: "jira/PROJ-123-fix-popup-alignment",
-        summary: "Implemented the popup alignment fix.",
-      },
-    ]);
-    expect(state.comments.at(-1)).toEqual({
-      issueKey: "PROJ-123",
-      comment: "MR created: https://gitlab.example.com/mr/jira-PROJ-123-fix-popup-alignment",
-    });
+    expect(state.mergeRequests).toEqual([]);
     expect(state.createdSandboxes).toHaveLength(2);
     expect(state.destroyedSandboxes).toEqual(state.createdSandboxes);
 
@@ -709,7 +699,7 @@ describe("workflow orchestration", () => {
     expect(JSON.parse(cliInspect.stdout)).toMatchObject({
       run: {
         id: accepted.runId,
-        status: "success",
+        status: "pushed",
         worktreeRetained: false,
       },
       tasks: expect.arrayContaining([
