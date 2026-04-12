@@ -31,6 +31,13 @@ export type DashboardServiceStatus = {
   serverUrl: string;
 };
 
+export type DashboardSystemStats = {
+  ramMb: number;
+  ramTotalMb: number;
+  loadAvg1: number;
+  cpuCount: number;
+};
+
 export type DashboardCredentialEnvStatus = {
   openRouter: boolean;
   gitlab: boolean;
@@ -87,8 +94,10 @@ export type DashboardTimelineItem = {
 export type DashboardSnapshot = {
   refreshedAt: string;
   offlineThresholdMs: number;
+  jiraBaseUrl: string | null;
   summary: DashboardSummary;
   services: DashboardServiceStatus;
+  systemStats: DashboardSystemStats;
   credentialEnv: DashboardCredentialEnvStatus;
   workers: DashboardWorker[];
   selectedWorkerId: string | null;
@@ -105,4 +114,5 @@ export type DashboardSnapshot = {
   messages: unknown[];
   tasks: DashboardTask[];
   timeline: DashboardTimelineItem[];
+  timelineTotal: number;
 };

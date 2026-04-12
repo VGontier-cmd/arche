@@ -17,6 +17,7 @@ import {
 import { buildExcerpt } from "./internal-utils";
 import { presentRunCommand } from "./presenters";
 import { getRunById } from "./run-queries";
+import { notifyDashboardChanged } from "../dashboard/events";
 import { appendRunLog, appendSystemRunLog } from "./run-writer";
 
 export async function writeRunCommandArtifacts(runId: string, stdout: string, stderr: string) {
@@ -64,6 +65,7 @@ export async function appendRunCommand(runId: string, entry: RunCommand) {
       updatedAt: new Date(),
     })
     .where(eq(runs.id, runId)));
+  notifyDashboardChanged();
 }
 
 export async function recordRunCommand(input: {

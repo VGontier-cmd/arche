@@ -5,6 +5,7 @@ import { runEvents, runLogs, runMessages, runs, type RunRow } from "../../db/sch
 import { TERMINAL_RUN_STATES } from "../policy";
 import { redactText, truncateText } from "../logging";
 import type { RunStatus } from "../types";
+import { notifyDashboardChanged } from "../dashboard/events";
 import { RUN_LOG_MESSAGE_LIMIT, RUN_MESSAGE_LIMIT } from "./constants";
 import { sanitizePayload } from "./internal-utils";
 import { presentRunMessage } from "./presenters";
@@ -15,6 +16,7 @@ export async function appendRunEvent(runId: string, type: string, payload: Recor
     type,
     payload: sanitizePayload(payload),
   }));
+  notifyDashboardChanged();
 }
 
 export async function appendRunLog(runId: string, stream: string, message: string) {
@@ -23,6 +25,7 @@ export async function appendRunLog(runId: string, stream: string, message: strin
     stream,
     message: truncateText(redactText(message), RUN_LOG_MESSAGE_LIMIT),
   }));
+  notifyDashboardChanged();
 }
 
 export async function appendRunMessage(
@@ -56,6 +59,7 @@ export async function appendRunMessage(
       .returning(),
   );
 
+  notifyDashboardChanged();
   return presentRunMessage(message);
 }
 

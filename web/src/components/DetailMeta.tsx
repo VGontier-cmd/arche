@@ -1,7 +1,7 @@
 import type { DashboardRun } from "../types";
 import { formatCost, formatDuration, formatTime } from "../lib/format";
 
-export function DetailMeta({ run }: { run: DashboardRun }) {
+export function DetailMeta({ run, jiraBaseUrl }: { run: DashboardRun; jiraBaseUrl?: string | null }) {
   const rows: Array<{ label: string; value: string; color?: string }> = [
     { label: "Run ID", value: run.id },
     { label: "Repository", value: run.repoName || "-" },
@@ -42,6 +42,21 @@ export function DetailMeta({ run }: { run: DashboardRun }) {
         {rows.map((row) => (
           <Row key={row.label} {...row} />
         ))}
+        {jiraBaseUrl && run.ticketKey && (
+          <>
+            <span className="text-[var(--fg2)]">Ticket</span>
+            <span>
+              <a
+                href={`${jiraBaseUrl}/browse/${run.ticketKey}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#58a6ff] hover:underline"
+              >
+                {run.ticketKey}
+              </a>
+            </span>
+          </>
+        )}
         {run.mrUrl && (
           <>
             <span className="text-[var(--fg2)]">MR</span>

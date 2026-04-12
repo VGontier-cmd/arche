@@ -13,11 +13,11 @@ export function KpiCards({ summary }: { summary: DashboardSummary }) {
   ];
 
   return (
-    <div className="flex gap-3 px-5 py-4 flex-wrap">
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-5 py-4">
       {cards.map((card) => (
         <div
           key={card.label}
-          className="flex-1 min-w-[120px] bg-[var(--color-base-200)] border border-[var(--border-color)] rounded-[var(--rounded-box)] px-4 py-3"
+          className="bg-[var(--color-base-200)] border border-[var(--border-color)] rounded-[var(--rounded-box)] px-4 py-3"
         >
           <div className="text-[11px] text-[var(--fg2)] uppercase tracking-wide">
             {card.label}

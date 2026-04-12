@@ -41,6 +41,7 @@ export {
   respondToRun,
   approvePublish,
   rejectPublish,
+  archiveRun,
   createMergeRequestForRun,
 } from "./run-approval-actions";
 export { refreshLock, acquireLock, releaseLock } from "./locks";

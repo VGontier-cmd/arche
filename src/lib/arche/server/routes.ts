@@ -16,11 +16,13 @@ import {
   repositoryCreateSchema,
   runHumanResponseSchema,
 } from "../contracts";
-import { getDashboardSnapshot } from "../dashboard/snapshot";
+import { dashboardEvents } from "../dashboard/events";
+import { getDashboardSnapshot, getRunTimeline } from "../dashboard/snapshot";
 import { createLogger } from "../logging";
 import {
   approvePlan,
   approvePublish,
+  archiveRun,
   cancelRun,
   createManualRunForTicket,
   createRepoRule,
@@ -133,6 +135,45 @@ export function registerServerRoutes(app: FastifyInstance) {
     },
   );
 
+  // === Dashboard SSE ===
+  app.get("/v1/dashboard/sse", async (request, reply) => {
+    await ensureArcheReady();
+    const query = request.query as { runId?: string };
+    const selectedRunId = query.runId ?? null;
+
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+
+    const initial = await getDashboardSnapshot({ selectedRunId });
+    reply.raw.write(`data: ${JSON.stringify(initial)}\n\n`);
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const onChange = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(async () => {
+        try {
+          const snap = await getDashboardSnapshot({ selectedRunId });
+          reply.raw.write(`data: ${JSON.stringify(snap)}\n\n`);
+        } catch {
+          // Client disconnected or error — listener will be cleaned up
+        }
+      }, 300);
+    };
+
+    dashboardEvents.on("changed", onChange);
+
+    request.raw.on("close", () => {
+      dashboardEvents.off("changed", onChange);
+      if (debounceTimer) clearTimeout(debounceTimer);
+    });
+
+    await reply.hijack();
+  });
+
   // === Runs ===
   app.get("/v1/runs", async () => {
     await ensureArcheReady();
@@ -178,6 +219,19 @@ export function registerServerRoutes(app: FastifyInstance) {
     },
   );
 
+  app.get<{ Params: { id: string }; Querystring: { offset?: string; limit?: string } }>(
+    "/v1/runs/:id/timeline",
+    async (request) => {
+      await ensureArcheReady();
+      const offset = request.query.offset ? Number(request.query.offset) : undefined;
+      const limit = request.query.limit ? Number(request.query.limit) : undefined;
+      return getRunTimeline(request.params.id, {
+        offset: Number.isFinite(offset) ? offset : undefined,
+        limit: Number.isFinite(limit) ? limit : undefined,
+      });
+    },
+  );
+
   app.post<{ Params: { id: string } }>("/v1/runs/:id/retry", async (request) => {
     await ensureArcheReady();
     return retryRun(request.params.id);
@@ -211,6 +265,11 @@ export function registerServerRoutes(app: FastifyInstance) {
       return rejectPublish(request.params.id);
     },
   );
+
+  app.post<{ Params: { id: string } }>("/v1/runs/:id/archive", async (request) => {
+    await ensureArcheReady();
+    return archiveRun(request.params.id);
+  });
 
   app.post<{ Params: { id: string } }>("/v1/runs/:id/create-mr", async (request) => {
     await ensureArcheReady();

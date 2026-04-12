@@ -515,6 +515,8 @@ function makeSnapshot(
   return {
     refreshedAt: "2026-04-07T09:00:00.000Z",
     offlineThresholdMs: 5_000,
+    jiraBaseUrl: null,
+    systemStats: { ramMb: 256, ramTotalMb: 16384, loadAvg1: 0.5, cpuCount: 8 },
     summary: {
       inboxCount: 2,
       activeCount: 1,
@@ -681,6 +683,7 @@ function makeSnapshot(
         detail: "qwen direct qwen-plus Plan produced.",
       },
     ],
+    timelineTotal: 5,
   };
 }
 
@@ -741,6 +744,7 @@ function makeRun(
     workerId: "worker-a",
     leaseOwner: null,
     leaseExpiresAt: null,
+    archivedAt: null,
     startedAt: "2026-04-07T08:59:00.000Z",
     finishedAt: null,
     createdAt: "2026-04-07T08:58:00.000Z",

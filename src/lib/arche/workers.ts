@@ -4,6 +4,7 @@ import { withSqliteWriteRetry, db } from "../db/client";
 import { runs, workers, type WorkerRow } from "../db/schema";
 import { makeId, serializeDate } from "./utils";
 import { NotFoundError } from "./errors";
+import { notifyDashboardChanged } from "./dashboard/events";
 import { redactText, truncateText } from "./logging";
 
 export const WORKER_STATUSES = ["idle", "busy", "waiting", "error"] as const;
@@ -84,6 +85,7 @@ export async function registerWorker(input: {
         .where(eq(workers.id, workerId))
         .returning(),
     );
+    notifyDashboardChanged();
     return worker;
   }
 
@@ -107,6 +109,7 @@ export async function registerWorker(input: {
       .returning(),
   );
 
+  notifyDashboardChanged();
   return worker;
 }
 
@@ -142,6 +145,9 @@ export async function updateWorkerState(
       .returning(),
   );
 
+  if (patch.status !== undefined || patch.activity !== undefined || patch.currentRunId !== undefined) {
+    notifyDashboardChanged();
+  }
   return worker;
 }
 
@@ -172,6 +178,7 @@ export async function deregisterWorker(workerId: string) {
   await withSqliteWriteRetry(() =>
     db.delete(workers).where(eq(workers.id, workerId)),
   );
+  notifyDashboardChanged();
 }
 
 export async function listWorkerRecentRuns(workerId: string, limit = 10) {

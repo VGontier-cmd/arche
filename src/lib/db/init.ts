@@ -222,6 +222,7 @@ export async function initSchema() {
   await ensureColumn("runs", "prompt_tokens", "alter table runs add column prompt_tokens integer");
   await ensureColumn("runs", "completion_tokens", "alter table runs add column completion_tokens integer");
   await ensureColumn("runs", "estimated_cost_usd", "alter table runs add column estimated_cost_usd text");
+  await ensureColumn("runs", "archived_at", "alter table runs add column archived_at integer");
   await ensureColumn("run_tasks", "prompt_tokens", "alter table run_tasks add column prompt_tokens integer");
   await ensureColumn("run_tasks", "completion_tokens", "alter table run_tasks add column completion_tokens integer");
   await ensureColumn("run_tasks", "estimated_cost_usd", "alter table run_tasks add column estimated_cost_usd text");

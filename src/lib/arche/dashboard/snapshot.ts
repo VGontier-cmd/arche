@@ -1,4 +1,6 @@
-import { asc, desc, eq } from "drizzle-orm";
+import { cpus, loadavg, totalmem } from "node:os";
+
+import { asc, count, desc, eq } from "drizzle-orm";
 
 import { getConfig, type OrchestratorConfig } from "../../config";
 import { db } from "../../db/client";
@@ -77,6 +79,13 @@ export type DashboardServiceStatus = {
   serverUrl: string;
 };
 
+export type DashboardSystemStats = {
+  ramMb: number;
+  ramTotalMb: number;
+  loadAvg1: number;
+  cpuCount: number;
+};
+
 /** Whether required process env vars are set (non-empty) for outbound integrations. */
 export type DashboardCredentialEnvStatus = {
   /**
@@ -93,8 +102,10 @@ export type DashboardCredentialEnvStatus = {
 export type DashboardSnapshot = {
   refreshedAt: string;
   offlineThresholdMs: number;
+  jiraBaseUrl: string | null;
   summary: DashboardSummary;
   services: DashboardServiceStatus;
+  systemStats: DashboardSystemStats;
   credentialEnv: DashboardCredentialEnvStatus;
   workers: DashboardWorker[];
   selectedWorkerId: string | null;
@@ -111,6 +122,7 @@ export type DashboardSnapshot = {
   messages: Array<ReturnType<typeof presentRunMessage>>;
   tasks: Array<ReturnType<typeof presentRunTask>>;
   timeline: DashboardTimelineItem[];
+  timelineTotal: number;
 };
 
 export function deriveWorkerPresentation(
@@ -174,11 +186,13 @@ export async function getDashboardSnapshot(options: {
   const onlineWorkerCount = dashboardWorkers.filter((worker) => !worker.offline).length;
   const workerById = new Map(dashboardWorkers.map((worker) => [worker.id, worker]));
 
-  const inboxRows = runRows.filter((run) => INBOX_STATUSES.has(run.status));
-  const activeRows = runRows.filter(
+  const visibleRunRows = runRows.filter((run) => !run.archivedAt);
+
+  const inboxRows = visibleRunRows.filter((run) => INBOX_STATUSES.has(run.status));
+  const activeRows = visibleRunRows.filter(
     (run) => !INBOX_STATUSES.has(run.status) && !TERMINAL_STATUSES.has(run.status),
   );
-  const recentRows = runRows.filter((run) => TERMINAL_STATUSES.has(run.status));
+  const recentRows = visibleRunRows.filter((run) => TERMINAL_STATUSES.has(run.status));
 
   const selectedRunRow =
     resolveSelectedRunRow(runRows, options.selectedRunId) ??
@@ -230,14 +244,31 @@ export async function getDashboardSnapshot(options: {
   const presentMessages = messages.map(presentRunMessage);
   const presentTasks = tasks.map(presentRunTask);
 
+  // Compute the total count of timeline items (beyond the limited fetch above)
+  let timelineTotal = 0;
+  if (selectedRunRow) {
+    const counts = await Promise.all([
+      db.select({ c: count() }).from(runLogs).where(eq(runLogs.runId, selectedRunRow.id)),
+      db.select({ c: count() }).from(runEvents).where(eq(runEvents.runId, selectedRunRow.id)),
+      db.select({ c: count() }).from(runCommands).where(eq(runCommands.runId, selectedRunRow.id)),
+      db.select({ c: count() }).from(runMessages).where(eq(runMessages.runId, selectedRunRow.id)),
+      db.select({ c: count() }).from(runTasks).where(eq(runTasks.runId, selectedRunRow.id)),
+    ]);
+    timelineTotal = counts.reduce((sum, rows) => sum + (rows[0]?.c ?? 0), 0);
+  }
+
+  const rawJiraUrl = readSecretEnv("USER_JIRA_BASE_URL");
+  const jiraBaseUrl = rawJiraUrl ? rawJiraUrl.replace(/\/+$/, "") : null;
+
   return {
     refreshedAt: new Date(nowMs).toISOString(),
     offlineThresholdMs,
+    jiraBaseUrl,
     credentialEnv: deriveDashboardCredentialEnvStatus(config),
     summary: {
       inboxCount: inboxRows.length,
       activeCount: activeRows.length,
-      failedCount: runRows.filter((run) => FAILED_STATUSES.has(run.status)).length,
+      failedCount: visibleRunRows.filter((run) => FAILED_STATUSES.has(run.status)).length,
       workerCount: dashboardWorkers.length,
       onlineWorkerCount,
       offlineWorkerCount: dashboardWorkers.filter((worker) => worker.offline).length,
@@ -246,6 +277,12 @@ export async function getDashboardSnapshot(options: {
       workerRunning: onlineWorkerCount > 0,
       serverRunning,
       serverUrl,
+    },
+    systemStats: {
+      ramMb: Math.round(process.memoryUsage.rss() / 1_048_576),
+      ramTotalMb: Math.round(totalmem() / 1_048_576),
+      loadAvg1: loadavg()[0],
+      cpuCount: cpus().length,
     },
     workers: dashboardWorkers,
     selectedWorkerId: selectedWorker?.id ?? null,
@@ -268,6 +305,7 @@ export async function getDashboardSnapshot(options: {
       messages: presentMessages,
       tasks: presentTasks,
     }),
+    timelineTotal,
   };
 }
 
@@ -318,4 +356,36 @@ function deriveDashboardCredentialEnvStatus(
     readSecretEnv("USER_JIRA_API_TOKEN") !== null;
 
   return { openRouter, gitlab, jira };
+}
+
+/**
+ * Fetches the full timeline for a run (no per-table limits) with offset/limit pagination.
+ * Returns `{ items, total }`.
+ */
+export async function getRunTimeline(
+  runId: string,
+  options: { offset?: number; limit?: number } = {},
+): Promise<{ items: DashboardTimelineItem[]; total: number }> {
+  const [logRows, eventRows, commandRows, messageRows, taskRows] = await Promise.all([
+    db.select().from(runLogs).where(eq(runLogs.runId, runId)).orderBy(asc(runLogs.timestamp), asc(runLogs.id)),
+    db.select().from(runEvents).where(eq(runEvents.runId, runId)).orderBy(asc(runEvents.timestamp), asc(runEvents.id)),
+    db.select().from(runCommands).where(eq(runCommands.runId, runId)).orderBy(asc(runCommands.timestamp), asc(runCommands.id)),
+    db.select().from(runMessages).where(eq(runMessages.runId, runId)).orderBy(asc(runMessages.sequence), asc(runMessages.id)),
+    db.select().from(runTasks).where(eq(runTasks.runId, runId)).orderBy(asc(runTasks.startedAt), asc(runTasks.id)),
+  ]);
+
+  const all = buildTimeline({
+    logs: logRows.map(presentRunLog),
+    events: eventRows.map(presentRunEvent),
+    commands: commandRows.map(presentRunCommand),
+    messages: messageRows.map(presentRunMessage),
+    tasks: taskRows.map(presentRunTask),
+  });
+
+  const total = all.length;
+  const offset = options.offset ?? 0;
+  const limit = options.limit ?? total;
+  const items = all.slice(offset, offset + limit);
+
+  return { items, total };
 }

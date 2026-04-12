@@ -1,5 +1,11 @@
 import type { DashboardRun } from "../types";
 
+function Kbd({ children }: { children: string }) {
+  return (
+    <span className="text-[9px] text-[var(--fg3)] ml-1 opacity-60">[{children}]</span>
+  );
+}
+
 export function DetailActions({
   run,
   onAction,
@@ -20,7 +26,7 @@ export function DetailActions({
         className="btn-primary"
         onClick={() => onAction(run.id, "approve-plan")}
       >
-        Approve Plan
+        Approve Plan<Kbd>a</Kbd>
       </button>,
     );
     buttons.push(
@@ -40,7 +46,7 @@ export function DetailActions({
         className="btn-danger"
         onClick={() => onAction(run.id, "cancel")}
       >
-        Cancel
+        Cancel<Kbd>c</Kbd>
       </button>,
     );
   }
@@ -52,7 +58,7 @@ export function DetailActions({
         className="btn-primary"
         onClick={() => onAction(run.id, "approve-publish")}
       >
-        Approve Publish
+        Approve Publish<Kbd>a</Kbd>
       </button>,
     );
     buttons.push(
@@ -61,7 +67,7 @@ export function DetailActions({
         className="btn-danger"
         onClick={() => onAction(run.id, "reject-publish")}
       >
-        Reject
+        Reject<Kbd>x</Kbd>
       </button>,
     );
   }
@@ -73,7 +79,7 @@ export function DetailActions({
         className="btn-primary"
         onClick={() => onOpenRespond(run.id, "Respond to the run")}
       >
-        Respond
+        Respond<Kbd>h</Kbd>
       </button>,
     );
     buttons.push(
@@ -82,7 +88,7 @@ export function DetailActions({
         className="btn-danger"
         onClick={() => onAction(run.id, "cancel")}
       >
-        Cancel
+        Cancel<Kbd>c</Kbd>
       </button>,
     );
   }
@@ -106,7 +112,7 @@ export function DetailActions({
         className="btn-default"
         onClick={() => onAction(run.id, "retry")}
       >
-        Retry
+        Retry<Kbd>t</Kbd>
       </button>,
     );
   }
@@ -128,7 +134,20 @@ export function DetailActions({
         className="btn-danger"
         onClick={() => onAction(run.id, "cancel")}
       >
-        Cancel
+        Cancel<Kbd>c</Kbd>
+      </button>,
+    );
+  }
+
+  const archivableStatuses = ["success", "pushed", "failed", "cancelled", "publish_rejected"];
+  if (archivableStatuses.includes(run.status)) {
+    buttons.push(
+      <button
+        key="archive"
+        className="btn-default"
+        onClick={() => onAction(run.id, "archive")}
+      >
+        Archive
       </button>,
     );
   }

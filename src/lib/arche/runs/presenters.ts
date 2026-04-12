@@ -19,6 +19,7 @@ export function presentRun(run: RunRow) {
     startedAt: serializeDate(run.startedAt),
     finishedAt: serializeDate(run.finishedAt),
     leaseExpiresAt: serializeDate(run.leaseExpiresAt),
+    archivedAt: serializeDate(run.archivedAt),
   };
 }
 

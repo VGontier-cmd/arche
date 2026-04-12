@@ -119,6 +119,7 @@ export const runs = sqliteTable(
     leaseExpiresAt: integer("lease_expires_at", { mode: "timestamp_ms" }),
     startedAt: integer("started_at", { mode: "timestamp_ms" }),
     finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
+    archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().defaultNow(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().defaultNow(),
   },

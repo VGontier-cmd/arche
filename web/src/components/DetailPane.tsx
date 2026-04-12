@@ -35,7 +35,7 @@ export function DetailPane({
         {run.ticketKey}: {run.ticketTitle || ""}
       </h2>
 
-      <DetailMeta run={run} />
+      <DetailMeta run={run} jiraBaseUrl={snapshot.jiraBaseUrl} />
       <DetailActions
         run={run}
         onAction={onAction}
@@ -45,7 +45,7 @@ export function DetailPane({
       <DetailPlan planMarkdown={run.planMarkdown} />
       <DetailPendingQuestion pendingQuestion={run.pendingQuestion} />
       <TasksList tasks={snapshot.tasks} />
-      <Timeline timeline={snapshot.timeline} />
+      <Timeline timeline={snapshot.timeline} timelineTotal={snapshot.timelineTotal} runId={snapshot.selectedRunId} />
     </div>
   );
 }

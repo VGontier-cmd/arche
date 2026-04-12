@@ -133,6 +133,27 @@ export async function rejectPublish(runId: string) {
   return updated;
 }
 
+export async function archiveRun(runId: string) {
+  const run = await getRunById(runId);
+  const terminalStatuses = ["success", "pushed", "failed", "cancelled", "publish_rejected"];
+  if (!terminalStatuses.includes(run.status)) {
+    throw new ExternalServiceError(`Run ${runId} is not in a terminal state (current: ${run.status})`);
+  }
+  const [updated] = await withSqliteWriteRetry(() =>
+    db
+      .update(runs)
+      .set({
+        archivedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(runs.id, runId))
+      .returning(),
+  );
+  await appendRunEvent(runId, "run.archived");
+  await appendSystemRunLog(runId, "run archived from dashboard");
+  return updated;
+}
+
 export async function createMergeRequestForRun(runId: string) {
   const run = await getRunById(runId);
   if (run.status !== "pushed") {
