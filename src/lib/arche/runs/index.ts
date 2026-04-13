@@ -8,7 +8,7 @@ export {
   presentRunTask,
   presentRepoRule,
 } from "./presenters";
-export { listRuns, listExecutionProfiles, getRunDetail, getRunById, getRunsByTicketKey } from "./run-queries";
+export { listRuns, listExecutionProfiles, getRunDetail, getRunById, getRunsByTicketKey, exportRunAsMarkdown } from "./run-queries";
 export {
   listRunLogs,
   listRunLogsPage,
@@ -50,5 +50,6 @@ export {
   createMergeRequestForRun,
 } from "./run-approval-actions";
 export { refreshLock, acquireLock, releaseLock } from "./locks";
+export { listSchedules, createSchedule, updateSchedule, deleteSchedule, fireSchedule, fireSchedules } from "./run-schedules";
 export { claimNextRun, refreshLease, sweepExpiredRuns, sweepTimedOutHumanInput, processRun } from "./worker-ops";
 export { pruneRunHistory } from "./prune";

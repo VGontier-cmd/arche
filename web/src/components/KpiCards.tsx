@@ -10,10 +10,15 @@ export function KpiCards({ summary }: { summary: DashboardSummary }) {
       value: `${summary.onlineWorkerCount}/${summary.workerCount}`,
       color: "text-[#3fb950]",
     },
+    {
+      label: "Credits",
+      value: summary.availableCredits !== null ? `$${summary.availableCredits.toFixed(2)}` : "—",
+      color: summary.availableCredits !== null ? "text-[#a5d6ff]" : "text-[var(--fg3)]",
+    },
   ];
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-5 py-4">
+    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 px-5 py-4">
       {cards.map((card) => (
         <div
           key={card.label}

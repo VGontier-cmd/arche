@@ -97,6 +97,8 @@ describe("SandboxManager", () => {
             timeout_seconds: 60,
             max_actions: 8,
             temperature: 0.1,
+            thinking_enabled: false,
+            thinking_budget_tokens: 5000,
           },
         },
       },

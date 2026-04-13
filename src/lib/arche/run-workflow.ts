@@ -8,6 +8,7 @@ import { GitManager } from "./git";
 import { redactText, truncateText } from "./logging";
 import {
   OpenRouterSdkProvider,
+  extractLastThinking,
   type ProviderAttempt,
   type ProviderMessage,
 } from "./provider";
@@ -70,6 +71,7 @@ export type WorkflowHooks = {
     role: string,
     kind: string,
     content: string,
+    thinkingContent?: string | null,
   ) => Promise<unknown>;
   appendSystemRunLog: (runId: string, message: string) => Promise<void>;
   createTask: (input: {
@@ -291,6 +293,8 @@ function createProvider(profile: ResolvedExecutionProfile, worktreePath?: string
     apiKeyEnv: profile.api_key_env,
     temperature: profile.temperature,
     timeoutMs: profile.timeout_seconds * 1000,
+    thinkingEnabled: profile.thinking_enabled,
+    thinkingBudgetTokens: profile.thinking_budget_tokens,
   });
 }
 
@@ -447,7 +451,7 @@ export async function runStructuredRole<T extends "planner" | "reviewer">(input:
       responseArtifactPath: artifactFiles.responseArtifactPath,
       attemptCount: result.attempts.length,
     });
-    await input.hooks.appendRunMessage(input.run.id, "assistant", input.role, result.responseText);
+    await input.hooks.appendRunMessage(input.run.id, "assistant", input.role, result.responseText, extractLastThinking(result.attempts));
     await input.hooks.appendRunEvent(input.run.id, `run_task.${input.role}.completed`, {
       cycle: input.cycle,
       needsHumanInput,
@@ -575,7 +579,7 @@ export async function runExecutorPatchLoop(input: {
         responseArtifactPath: artifactFiles.responseArtifactPath,
         attemptCount: result.attempts.length,
       });
-      await input.hooks.appendRunMessage(input.run.id, "assistant", "executor", result.responseText);
+      await input.hooks.appendRunMessage(input.run.id, "assistant", "executor", result.responseText, extractLastThinking(result.attempts));
       const action = result.action;
       await input.hooks.appendRunEvent(input.run.id, "provider.action_received", {
         cycle: input.cycle,

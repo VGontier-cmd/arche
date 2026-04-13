@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, memo } from "react";
 import type { DashboardTimelineItem } from "../types";
 import { fetchTimeline } from "../api/client";
 import { formatTime } from "../lib/format";
@@ -12,6 +12,26 @@ const sourceStyles: Record<string, { color: string; icon: string }> = {
 };
 
 const PAGE_SIZE = 100;
+
+const ThinkingBlock = memo(function ThinkingBlock({ excerpt }: { excerpt: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="ml-[137px] mt-0.5">
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        className="text-[10px] text-[#7d8590] hover:text-[#b1bac4] flex items-center gap-1"
+      >
+        <span>{open ? "\u25BE" : "\u25B8"}</span>
+        <span>Thinking...</span>
+      </button>
+      {open && (
+        <div className="mt-0.5 px-2 py-1.5 bg-[var(--color-base-300)] border border-[var(--border-color)] rounded text-[10px] text-[#7d8590] whitespace-pre-wrap leading-tight max-h-48 overflow-y-auto">
+          {excerpt}
+        </div>
+      )}
+    </div>
+  );
+});
 
 export function Timeline({
   timeline,
@@ -133,6 +153,9 @@ export function Timeline({
                 >
                   {item.detail}
                 </div>
+              )}
+              {item.source === "message" && item.thinkingExcerpt && (
+                <ThinkingBlock excerpt={item.thinkingExcerpt} />
               )}
             </div>
           );

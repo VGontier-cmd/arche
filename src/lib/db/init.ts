@@ -195,6 +195,24 @@ export async function initSchema() {
     );
   `));
 
+  await withSqliteWriteRetry(() => db.run(sql`
+    create table if not exists run_schedules (
+      id text primary key,
+      label text not null,
+      ticket_key text not null,
+      recurrence text not null default 'once',
+      hour integer not null default 9,
+      minute integer not null default 0,
+      day_of_week integer,
+      enabled integer not null default 1,
+      next_run_at integer,
+      last_run_at integer,
+      last_run_id text references runs(id) on delete set null,
+      created_at integer not null default (cast((julianday('now') - 2440587.5)*86400000 as integer)),
+      updated_at integer not null default (cast((julianday('now') - 2440587.5)*86400000 as integer))
+    );
+  `));
+
   await ensureColumn("runs", "worktree_retained", "alter table runs add column worktree_retained integer not null default 0");
   await ensureColumn("runs", "artifacts_path", "alter table runs add column artifacts_path text");
   await ensureColumn("runs", "worker_id", "alter table runs add column worker_id text");
@@ -226,6 +244,7 @@ export async function initSchema() {
   await ensureColumn("run_tasks", "prompt_tokens", "alter table run_tasks add column prompt_tokens integer");
   await ensureColumn("run_tasks", "completion_tokens", "alter table run_tasks add column completion_tokens integer");
   await ensureColumn("run_tasks", "estimated_cost_usd", "alter table run_tasks add column estimated_cost_usd text");
+  await ensureColumn("run_messages", "thinking_excerpt", "alter table run_messages add column thinking_excerpt text");
 
   await withSqliteWriteRetry(() => db.run(sql`create index if not exists runs_ticket_key_idx on runs(ticket_key);`));
   await withSqliteWriteRetry(() => db.run(sql`create index if not exists runs_status_idx on runs(status);`));
@@ -255,6 +274,9 @@ export async function initSchema() {
   );
   await withSqliteWriteRetry(() =>
     db.run(sql`create index if not exists workers_last_heartbeat_idx on workers(last_heartbeat_at);`),
+  );
+  await withSqliteWriteRetry(() =>
+    db.run(sql`create index if not exists run_schedules_next_run_idx on run_schedules(next_run_at, enabled);`),
   );
 }
 

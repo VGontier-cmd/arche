@@ -20,6 +20,7 @@ import { QuickReferenceOverlay } from "./components/QuickReferenceOverlay";
 import { SetupWizard } from "./components/SetupWizard";
 import { SkeletonLoader } from "./components/SkeletonLoader";
 import { TicketHistoryModal } from "./components/TicketHistoryModal";
+import { SchedulesView } from "./components/SchedulesView";
 
 const DESTRUCTIVE_ACTIONS: Record<string, { title: string; body: string; label: string }> = {
   cancel: {
@@ -382,6 +383,11 @@ export default function App() {
           {activeView === "settings" && (
             <div className="flex-1 overflow-y-auto">
               <SettingsView />
+            </div>
+          )}
+          {activeView === "schedules" && (
+            <div className="flex-1 overflow-y-auto">
+              <SchedulesView />
             </div>
           )}
         </div>

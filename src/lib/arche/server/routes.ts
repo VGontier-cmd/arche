@@ -19,6 +19,8 @@ import {
   repositoryCreateSchema,
   repositoryUpdateSchema,
   runHumanResponseSchema,
+  runScheduleCreateSchema,
+  runScheduleUpdateSchema,
 } from "../contracts";
 import { stopWorker, restartWorker, purgeOfflineWorkers } from "../workers";
 import { dashboardEvents } from "../dashboard/events";
@@ -46,7 +48,13 @@ import {
   listRunLogsPage,
   listRuns,
   getRunsByTicketKey,
+  exportRunAsMarkdown,
   createMergeRequestForRun,
+  listSchedules,
+  createSchedule,
+  updateSchedule,
+  deleteSchedule,
+  fireSchedule,
   rejectPublish,
   respondToRun,
   retryRun,
@@ -360,6 +368,15 @@ export function registerServerRoutes(app: FastifyInstance) {
     return archiveRun(request.params.id);
   });
 
+  app.get<{ Params: { id: string } }>("/v1/runs/:id/export", async (request, reply) => {
+    await ensureArcheReady();
+    const markdown = await exportRunAsMarkdown(request.params.id);
+    const filename = `run-${request.params.id.slice(0, 8)}.md`;
+    reply.header("Content-Type", "text/markdown; charset=utf-8");
+    reply.header("Content-Disposition", `attachment; filename="${filename}"`);
+    return reply.send(markdown);
+  });
+
   app.post<{ Params: { id: string } }>("/v1/runs/:id/create-mr", async (request) => {
     await ensureArcheReady();
     return createMergeRequestForRun(request.params.id);
@@ -386,6 +403,38 @@ export function registerServerRoutes(app: FastifyInstance) {
   app.get<{ Params: { key: string } }>("/v1/tickets/:key/runs", async (request) => {
     await ensureArcheReady();
     return getRunsByTicketKey(request.params.key);
+  });
+
+  // === Schedules ===
+  app.get("/v1/schedules", async () => {
+    await ensureArcheReady();
+    return listSchedules();
+  });
+
+  app.post("/v1/schedules", async (request, reply) => {
+    await ensureArcheReady();
+    const body = runScheduleCreateSchema.parse(request.body ?? {});
+    const schedule = await createSchedule(body);
+    reply.status(201);
+    return schedule;
+  });
+
+  app.put<{ Params: { id: string } }>("/v1/schedules/:id", async (request) => {
+    await ensureArcheReady();
+    const body = runScheduleUpdateSchema.parse(request.body ?? {});
+    return updateSchedule(request.params.id, body);
+  });
+
+  app.delete<{ Params: { id: string } }>("/v1/schedules/:id", async (request, reply) => {
+    await ensureArcheReady();
+    await deleteSchedule(request.params.id);
+    reply.status(204);
+    return;
+  });
+
+  app.post<{ Params: { id: string } }>("/v1/schedules/:id/fire", async (request) => {
+    await ensureArcheReady();
+    return fireSchedule(request.params.id);
   });
 
   // === Repositories ===
@@ -461,6 +510,34 @@ export function registerServerRoutes(app: FastifyInstance) {
   app.get("/v1/profiles", async () => {
     await ensureArcheReady();
     return listExecutionProfiles();
+  });
+
+  // === OpenRouter Models ===
+  app.get("/v1/models", async (_request, reply) => {
+    await ensureArcheReady();
+    const config = await getConfig();
+    // Resolve first available API key from executor profiles
+    let apiKey: string | null = null;
+    for (const role of ["planner", "executor", "reviewer"] as const) {
+      const profileName = config.executors.defaults[role];
+      const profile = config.executors.profiles[profileName];
+      if (profile) {
+        const key = process.env[profile.api_key_env];
+        if (key) { apiKey = key; break; }
+      }
+    }
+    if (!apiKey) {
+      reply.status(503);
+      return { error: "No OpenRouter API key configured" };
+    }
+    const { fetchOpenRouterModels } = await import("../openrouter-proxy");
+    try {
+      const models = await fetchOpenRouterModels(apiKey);
+      return { data: models };
+    } catch (error) {
+      reply.status(502);
+      return { error: error instanceof Error ? error.message : "Failed to fetch models" };
+    }
   });
 
   // === Config ===

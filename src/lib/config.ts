@@ -54,6 +54,8 @@ const defaultExecutorProfile = {
   timeout_seconds: 60,
   max_actions: 20,
   temperature: 0.1,
+  thinking_enabled: false,
+  thinking_budget_tokens: 5000,
 } as const;
 
 const defaultExecutorsConfig = {
@@ -75,6 +77,8 @@ const executorProfileSchema = z.object({
   timeout_seconds: z.number().int().positive().default(defaultExecutorProfile.timeout_seconds),
   max_actions: z.number().int().positive().default(defaultExecutorProfile.max_actions),
   temperature: z.number().min(0).max(2).default(defaultExecutorProfile.temperature),
+  thinking_enabled: z.boolean().default(defaultExecutorProfile.thinking_enabled),
+  thinking_budget_tokens: z.number().int().positive().default(defaultExecutorProfile.thinking_budget_tokens),
 });
 
 const executorsConfigSchema = z

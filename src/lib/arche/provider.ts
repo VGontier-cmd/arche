@@ -113,6 +113,8 @@ export type ProviderInvocation = {
   timeoutMs?: number;
   extraHeaders?: Record<string, string>;
   extraBody?: Record<string, unknown>;
+  thinkingEnabled?: boolean;
+  thinkingBudgetTokens?: number;
 };
 
 export type ProviderUsage = {
@@ -127,6 +129,7 @@ export type ProviderAttempt = {
   responseText?: string;
   error?: string;
   usage?: ProviderUsage;
+  thinkingText?: string | null;
 };
 
 function extractFirstJsonObject(text: string) {
@@ -237,14 +240,31 @@ function isTextContentItem(value: unknown): value is { type: "text"; text: strin
   );
 }
 
-function extractAssistantText(content: unknown) {
-  if (Array.isArray(content)) {
-    return content
-      .flatMap((item) => (isTextContentItem(item) ? [item.text] : []))
-      .join("");
-  }
+function isThinkingContentItem(value: unknown): value is { type: "thinking"; thinking: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    value.type === "thinking" &&
+    "thinking" in value &&
+    typeof (value as { thinking: unknown }).thinking === "string"
+  );
+}
 
-  return typeof content === "string" ? content : "";
+function extractAssistantContent(content: unknown): { text: string; thinking: string | null } {
+  if (Array.isArray(content)) {
+    const text = content.flatMap((item) => (isTextContentItem(item) ? [item.text] : [])).join("");
+    const thinkingParts = content.flatMap((item) => (isThinkingContentItem(item) ? [item.thinking] : []));
+    return { text, thinking: thinkingParts.length > 0 ? thinkingParts.join("") : null };
+  }
+  return { text: typeof content === "string" ? content : "", thinking: null };
+}
+
+export function extractLastThinking(attempts: ProviderAttempt[]): string | null {
+  for (let i = attempts.length - 1; i >= 0; i--) {
+    if (attempts[i].thinkingText) return attempts[i].thinkingText ?? null;
+  }
+  return null;
 }
 
 export class OpenRouterSdkProvider {
@@ -264,13 +284,32 @@ export class OpenRouterSdkProvider {
 
   private buildPayload(messages: ProviderMessage[]) {
     const extraBody = this.invocation.extraBody ?? {};
-    return {
+    const isAnthropic = this.invocation.modelName.startsWith("anthropic/");
+    const isOSeries = /\/(o1|o3|o4)/.test(this.invocation.modelName);
+
+    // When thinking is enabled for Claude models, temperature must be 1.0
+    const temperature = this.invocation.thinkingEnabled && isAnthropic
+      ? 1.0
+      : typeof this.invocation.temperature === "number" ? this.invocation.temperature : 0.1;
+
+    const payload: ChatRequest & Record<string, unknown> = {
       ...extraBody,
       model: this.invocation.modelName,
       messages: messages.map((message) => ({ ...message })) as ChatMessages[],
-      temperature: typeof this.invocation.temperature === "number" ? this.invocation.temperature : 0.1,
+      temperature,
       stream: false,
-    } as ChatRequest & Record<string, unknown>;
+    };
+
+    if (this.invocation.thinkingEnabled) {
+      const budget = this.invocation.thinkingBudgetTokens ?? 5000;
+      if (isAnthropic) {
+        payload.thinking = { type: "enabled", budget_tokens: budget };
+      } else if (isOSeries) {
+        payload.reasoning = { effort: "medium" };
+      }
+    }
+
+    return payload;
   }
 
   private createClient(attemptRecord: ProviderAttempt, timeoutMs: number) {
@@ -336,7 +375,9 @@ export class OpenRouterSdkProvider {
           };
         }
 
-        return extractAssistantText(response.choices[0]?.message?.content);
+        const { text, thinking } = extractAssistantContent(response.choices[0]?.message?.content);
+        attemptRecord.thinkingText = thinking;
+        return text;
       } catch (error) {
         if (error instanceof OpenRouterError) {
           attemptRecord.responseStatus ??= error.statusCode;

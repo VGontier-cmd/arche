@@ -73,6 +73,7 @@ export type DashboardSummary = {
   workerCount: number;
   onlineWorkerCount: number;
   offlineWorkerCount: number;
+  availableCredits: number | null;
 };
 
 export type DashboardServiceStatus = {
@@ -277,6 +278,7 @@ export async function getDashboardSnapshot(options: {
 
   const rawJiraUrl = readSecretEnv("USER_JIRA_BASE_URL");
   const jiraBaseUrl = rawJiraUrl ? rawJiraUrl.replace(/\/+$/, "") : null;
+  const availableCredits = await fetchOpenRouterCredits(config);
 
   return {
     refreshedAt: new Date(nowMs).toISOString(),
@@ -293,6 +295,7 @@ export async function getDashboardSnapshot(options: {
       workerCount: dashboardWorkers.length,
       onlineWorkerCount,
       offlineWorkerCount: dashboardWorkers.filter((worker) => worker.offline).length,
+      availableCredits,
     },
     services: {
       workerRunning: onlineWorkerCount > 0,
@@ -375,6 +378,7 @@ export async function getDashboardListSnapshot(options: {
 
   const rawJiraUrl = readSecretEnv("USER_JIRA_BASE_URL");
   const jiraBaseUrl = rawJiraUrl ? rawJiraUrl.replace(/\/+$/, "") : null;
+  const availableCredits = await fetchOpenRouterCredits(config);
 
   return {
     refreshedAt: new Date(nowMs).toISOString(),
@@ -391,6 +395,7 @@ export async function getDashboardListSnapshot(options: {
       workerCount: dashboardWorkers.length,
       onlineWorkerCount,
       offlineWorkerCount: dashboardWorkers.filter((worker) => worker.offline).length,
+      availableCredits,
     },
     services: {
       workerRunning: onlineWorkerCount > 0,
@@ -421,6 +426,40 @@ async function probeServerHealth(serverUrl: string) {
 }
 
 let cachedDockerHealth: { value: boolean; expiresAt: number } | null = null;
+
+let cachedCredits: { value: number | null; expiresAt: number } | null = null;
+
+async function fetchOpenRouterCredits(config: OrchestratorConfig): Promise<number | null> {
+  const now = Date.now();
+  if (cachedCredits && now < cachedCredits.expiresAt) {
+    return cachedCredits.value;
+  }
+  const keys = new Set<string>();
+  for (const role of ["planner", "executor", "reviewer"] as const) {
+    const profileName = config.executors.defaults[role];
+    const profile = config.executors.profiles[profileName];
+    if (profile) keys.add(profile.api_key_env);
+  }
+  for (const envName of keys) {
+    const apiKey = readSecretEnv(envName);
+    if (!apiKey) continue;
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/credits", {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!res.ok) break; // 403 = management key required — degrade gracefully
+      const json = await res.json() as { data?: { total_credits?: number; total_usage?: number } };
+      const available = (json.data?.total_credits ?? 0) - (json.data?.total_usage ?? 0);
+      cachedCredits = { value: available, expiresAt: now + 60_000 };
+      return available;
+    } catch {
+      break;
+    }
+  }
+  cachedCredits = { value: null, expiresAt: now + 60_000 };
+  return null;
+}
 
 async function probeDockerHealth(): Promise<boolean> {
   const now = Date.now();

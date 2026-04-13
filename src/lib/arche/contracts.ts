@@ -130,6 +130,8 @@ export const configUpdateSchema = z
               timeout_seconds: z.number().int().positive().optional(),
               max_actions: z.number().int().positive().optional(),
               temperature: z.number().min(0).max(2).optional(),
+              thinking_enabled: z.boolean().optional(),
+              thinking_budget_tokens: z.number().int().positive().optional(),
             }),
           )
           .optional(),
@@ -138,7 +140,21 @@ export const configUpdateSchema = z
   })
   .strict();
 
+export const runScheduleCreateSchema = z.object({
+  label: z.string().min(1),
+  ticketKey: z.string().min(1),
+  recurrence: z.enum(["once", "daily", "weekly"]).default("once"),
+  hour: z.number().int().min(0).max(23).default(9),
+  minute: z.number().int().min(0).max(59).default(0),
+  dayOfWeek: z.number().int().min(0).max(6).optional(),
+  enabled: z.boolean().default(true),
+});
+
+export const runScheduleUpdateSchema = runScheduleCreateSchema.partial();
+
 export type ConfigUpdateInput = z.infer<typeof configUpdateSchema>;
+export type RunScheduleCreateInput = z.infer<typeof runScheduleCreateSchema>;
+export type RunScheduleUpdateInput = z.infer<typeof runScheduleUpdateSchema>;
 
 export type ManualRunRequest = z.infer<typeof manualRunRequestSchema>;
 

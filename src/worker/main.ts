@@ -4,7 +4,7 @@ import { ensureArcheReady } from "../lib/bootstrap";
 import { getConfig } from "../lib/config";
 import { checkpointWal, database, optimizeDatabase } from "../lib/db/client";
 import { createLogger, errorDetails } from "../lib/arche/logging";
-import { claimNextRun, processRun, pruneRunHistory, sweepExpiredRuns, sweepTimedOutHumanInput } from "../lib/arche/runs";
+import { claimNextRun, processRun, pruneRunHistory, sweepExpiredRuns, sweepTimedOutHumanInput, fireSchedules } from "../lib/arche/runs";
 import { sleep } from "../lib/arche/utils";
 import {
   buildWorkerId,
@@ -226,6 +226,13 @@ export async function startWorker() {
         lastBackupHour = currentHour;
         await backupDatabase();
       }
+
+      await fireSchedules().catch((err) =>
+        logger.error("worker_loop", "schedule firing failed", {
+          event: "worker.schedule_firing_failed",
+          details: errorDetails(err),
+        }),
+      );
 
       const run = await claimNextRun(workerId, config.worker.lease_ttl_seconds);
       if (run) {

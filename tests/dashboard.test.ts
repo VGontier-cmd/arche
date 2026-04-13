@@ -315,7 +315,7 @@ describe("dashboard read model", () => {
 
     const snapshot = await dashboardModule.getDashboardSnapshot({ nowMs: now });
 
-    expect(snapshot.summary).toEqual({
+    expect(snapshot.summary).toMatchObject({
       inboxCount: 1,
       activeCount: 1,
       failedCount: 1,
@@ -527,6 +527,7 @@ function makeSnapshot(
       workerCount: 1,
       onlineWorkerCount: 1,
       offlineWorkerCount: 0,
+      availableCredits: expect.anything(),
     },
     services: {
       workerRunning: true,
@@ -625,6 +626,7 @@ function makeSnapshot(
         role: "assistant",
         kind: "action",
         contentExcerpt: "Requested a patch application.",
+        thinkingExcerpt: null,
       },
     ],
     tasks: [

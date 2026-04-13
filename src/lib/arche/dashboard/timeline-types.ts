@@ -4,4 +4,5 @@ export type DashboardTimelineItem = {
   timestamp: string | null;
   title: string;
   detail: string | null;
+  thinkingExcerpt?: string | null;
 };

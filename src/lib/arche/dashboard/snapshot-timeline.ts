@@ -21,6 +21,7 @@ export function buildTimeline(input: {
       timestamp: message.timestamp,
       title: `${message.role}/${message.kind}`,
       detail: message.contentExcerpt,
+      thinkingExcerpt: (message as { thinkingExcerpt?: string | null }).thinkingExcerpt ?? null,
       sortTime: parseTimestamp(message.timestamp),
       sortKey: `message-${message.id}`,
     })),

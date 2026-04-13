@@ -5,6 +5,7 @@ export type DashboardSummary = {
   workerCount: number;
   onlineWorkerCount: number;
   offlineWorkerCount: number;
+  availableCredits: number | null;
 };
 
 export type DashboardWorker = {
@@ -101,6 +102,7 @@ export type DashboardTimelineItem = {
   timestamp: string | null;
   title: string;
   detail: string | null;
+  thinkingExcerpt?: string | null;
 };
 
 // === Repositories & Rules ===
@@ -144,6 +146,8 @@ export type ExecutorProfile = {
   timeout_seconds: number;
   max_actions: number;
   temperature: number;
+  thinking_enabled: boolean;
+  thinking_budget_tokens: number;
 };
 
 export type OrchestratorConfigView = {
@@ -203,7 +207,23 @@ export type RunDetailSnapshot = {
   timelineTotal: number;
 };
 
-export type AppView = "runs" | "repositories" | "rules" | "settings";
+export type AppView = "runs" | "repositories" | "rules" | "settings" | "schedules";
+
+export type RunSchedule = {
+  id: string;
+  label: string;
+  ticketKey: string;
+  recurrence: "once" | "daily" | "weekly";
+  hour: number;
+  minute: number;
+  dayOfWeek: number | null;
+  enabled: boolean;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  lastRunId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export type DashboardSnapshot = {
   refreshedAt: string;

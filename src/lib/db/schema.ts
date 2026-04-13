@@ -211,6 +211,7 @@ export const runMessages = sqliteTable(
     role: text("role").notNull(),
     kind: text("kind").notNull(),
     contentExcerpt: text("content_excerpt").notNull(),
+    thinkingExcerpt: text("thinking_excerpt"),
   },
   (table) => ({
     runSequenceIdx: index("run_messages_run_sequence_idx").on(table.runId, table.sequence),
@@ -255,6 +256,22 @@ export const locks = sqliteTable(
   }),
 );
 
+export const runSchedules = sqliteTable("run_schedules", {
+  id: text("id").primaryKey(),
+  label: text("label").notNull(),
+  ticketKey: text("ticket_key").notNull(),
+  recurrence: text("recurrence").notNull().default("once"),
+  hour: integer("hour").notNull().default(9),
+  minute: integer("minute").notNull().default(0),
+  dayOfWeek: integer("day_of_week"),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  nextRunAt: integer("next_run_at", { mode: "timestamp_ms" }),
+  lastRunAt: integer("last_run_at", { mode: "timestamp_ms" }),
+  lastRunId: text("last_run_id").references(() => runs.id, { onDelete: "set null" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().defaultNow(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().defaultNow(),
+});
+
 export type RepositoryRow = typeof repositories.$inferSelect;
 export type InferenceServerRow = typeof inferenceServers.$inferSelect;
 export type RepoRuleRow = typeof repoRules.$inferSelect;
@@ -265,3 +282,4 @@ export type RunCommandRow = typeof runCommands.$inferSelect;
 export type RunTaskRow = typeof runTasks.$inferSelect;
 export type RunMessageRow = typeof runMessages.$inferSelect;
 export type WorkerRow = typeof workers.$inferSelect;
+export type RunScheduleRow = typeof runSchedules.$inferSelect;

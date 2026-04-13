@@ -27,6 +27,100 @@ export async function listRuns() {
   return rows.map(presentRun);
 }
 
+export async function exportRunAsMarkdown(runId: string): Promise<string> {
+  const run = await getRunById(runId);
+
+  let repoName = run.repositoryId ?? "-";
+  if (run.repositoryId) {
+    try {
+      const { getRepositoryById } = await import("./repositories");
+      const repo = await getRepositoryById(run.repositoryId);
+      repoName = repo.name;
+    } catch {
+      // ignore
+    }
+  }
+
+  const startedAt = run.startedAt ? new Date(run.startedAt).toISOString().replace("T", " ").slice(0, 19) : "-";
+  const finishedAt = run.finishedAt ? new Date(run.finishedAt).toISOString().replace("T", " ").slice(0, 19) : "-";
+  const durationSec = run.startedAt && run.finishedAt
+    ? Math.floor((run.finishedAt.getTime() - run.startedAt.getTime()) / 1000)
+    : null;
+  const durationStr = durationSec !== null
+    ? durationSec < 60 ? `${durationSec}s` : `${Math.floor(durationSec / 60)}m ${durationSec % 60}s`
+    : "-";
+  const cost = run.estimatedCostUsd !== null && run.estimatedCostUsd !== undefined
+    ? `$${Number(run.estimatedCostUsd).toFixed(4)}`
+    : "-";
+  const tokens = run.promptTokens ? `${run.promptTokens.toLocaleString()} in / ${(run.completionTokens ?? 0).toLocaleString()} out` : "-";
+
+  const findings: Array<{ title: string; body: string; file?: string | null }> =
+    Array.isArray(run.latestFindings) ? run.latestFindings : [];
+
+  const diffLines = run.diffExcerpt ? run.diffExcerpt.split("\n") : [];
+  const additions = diffLines.filter((l) => l.startsWith("+") && !l.startsWith("+++")).length;
+  const deletions = diffLines.filter((l) => l.startsWith("-") && !l.startsWith("---")).length;
+
+  const lines: string[] = [
+    `# Run Report: ${run.ticketKey} — ${run.ticketTitle}`,
+    "",
+    `| Field | Value |`,
+    `|---|---|`,
+    `| Status | \`${run.status}\` |`,
+    `| Repository | ${repoName} |`,
+    `| Branch | \`${run.branchName ?? "-"}\` |`,
+    `| Started | ${startedAt} |`,
+    `| Finished | ${finishedAt} |`,
+    `| Duration | ${durationStr} |`,
+    `| Cost | ${cost} |`,
+    `| Tokens | ${tokens} |`,
+    run.mrUrl ? `| MR / PR | [${run.mrUrl}](${run.mrUrl}) |` : `| MR / PR | - |`,
+    "",
+  ];
+
+  if (run.planMarkdown) {
+    lines.push("## Plan", "", run.planMarkdown, "");
+    if (Array.isArray(run.planRisks) && run.planRisks.length > 0) {
+      lines.push("**Risks:**", "");
+      for (const risk of run.planRisks) lines.push(`- ${risk}`);
+      lines.push("");
+    }
+  }
+
+  if (run.diffExcerpt) {
+    lines.push(
+      "## Changes",
+      "",
+      `+${additions} −${deletions} lines`,
+      "",
+      "```diff",
+      run.diffExcerpt,
+      "```",
+      "",
+    );
+  }
+
+  if (findings.length > 0) {
+    lines.push("## Reviewer Findings", "");
+    findings.forEach((f, i) => {
+      lines.push(`### ${i + 1}. ${f.title}${f.file ? ` \`(${f.file})\`` : ""}`);
+      lines.push("", f.body, "");
+    });
+  }
+
+  if (run.latestReviewSummary) {
+    lines.push("## Review Summary", "", run.latestReviewSummary, "");
+  }
+
+  if (run.failureReason) {
+    lines.push("## Failure", "", `> ${run.failureReason}`, "");
+  }
+
+  lines.push(`---`, ``, `*Exported from Arche on ${new Date().toISOString().slice(0, 10)}*`);
+
+  return lines.join("\n");
+}
+
 export async function getRunsByTicketKey(ticketKey: string) {
   const rows = await db
     .select()

@@ -33,11 +33,16 @@ export async function appendRunMessage(
   role: string,
   kind: string,
   content: string,
+  thinkingContent?: string | null,
 ) {
   const redacted = truncateText(redactText(content), RUN_MESSAGE_LIMIT).trim();
   if (!redacted) {
     return null;
   }
+
+  const thinkingExcerpt = thinkingContent
+    ? truncateText(redactText(thinkingContent), 2000).trim() || null
+    : null;
 
   const [lastMessage] = await db
     .select({ sequence: runMessages.sequence })
@@ -55,6 +60,7 @@ export async function appendRunMessage(
         role,
         kind,
         contentExcerpt: redacted,
+        thinkingExcerpt,
       })
       .returning(),
   );

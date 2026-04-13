@@ -4,6 +4,7 @@ const NAV_ITEMS: Array<{ view: AppView; label: string; icon: string }> = [
   { view: "runs", label: "Runs", icon: "\u25B6" },
   { view: "repositories", label: "Repos", icon: "\u2630" },
   { view: "rules", label: "Rules", icon: "\u2699" },
+  { view: "schedules", label: "Cron", icon: "\u23F1" },
   { view: "settings", label: "Settings", icon: "\u2638" },
 ];
 

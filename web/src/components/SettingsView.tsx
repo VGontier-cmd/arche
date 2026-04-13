@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { OrchestratorConfigView, ExecutorProfile } from "../types";
-import { fetchConfig, updateConfig } from "../api/client";
+import { fetchConfig, updateConfig, fetchOpenRouterModels, type OpenRouterModel } from "../api/client";
 import { useToast } from "../context/ToastContext";
 
 type SectionKey = "workflow" | "policy" | "worker" | "defaults" | "routing" | "git" | "executors";
@@ -479,6 +479,76 @@ function ExecutorsEditForm({
   );
 }
 
+function ModelSearchSelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [models, setModels] = useState<OpenRouterModel[]>([]);
+  const [query, setQuery] = useState(value);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchOpenRouterModels()
+      .then(setModels)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  // Sync query when value changes externally
+  useEffect(() => {
+    setQuery(value);
+  }, [value]);
+
+  const filtered = query.trim().length > 0
+    ? models
+        .filter((m) =>
+          m.id.toLowerCase().includes(query.toLowerCase()) ||
+          m.name.toLowerCase().includes(query.toLowerCase()),
+        )
+        .slice(0, 30)
+    : models.slice(0, 30);
+
+  return (
+    <div className="relative">
+      <input
+        className={inputClass}
+        value={query}
+        placeholder={loading ? "Loading models..." : "Search or type model ID..."}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => { closeTimer.current = setTimeout(() => setOpen(false), 150); }}
+      />
+      {open && filtered.length > 0 && (
+        <div className="absolute z-10 w-full bg-[var(--color-base-200)] border border-[var(--border-color)] rounded-[var(--rounded-box)] mt-0.5 max-h-48 overflow-y-auto text-xs shadow-lg">
+          {filtered.map((m) => (
+            <div
+              key={m.id}
+              className="px-3 py-1.5 hover:bg-[var(--color-base-300)] cursor-pointer"
+              onMouseDown={() => {
+                if (closeTimer.current) clearTimeout(closeTimer.current);
+                onChange(m.id);
+                setQuery(m.id);
+                setOpen(false);
+              }}
+            >
+              <span className="text-[#e6edf3]">{m.id}</span>
+              {m.name !== m.id && (
+                <span className="ml-2 text-[var(--fg3)] text-[10px]">{m.name}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProfileEditCard({
   name,
   profile,
@@ -493,7 +563,7 @@ function ProfileEditCard({
       <div className="font-semibold text-xs text-[#58a6ff] mb-2">{name}</div>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3 text-[11px]">
         <Field label="Model">
-          <input className={inputClass} value={profile.model} onChange={(e) => onUpdate("model", e.target.value)} />
+          <ModelSearchSelect value={profile.model} onChange={(v) => onUpdate("model", v)} />
         </Field>
         <Field label="Base URL">
           <input className={inputClass} value={profile.base_url} onChange={(e) => onUpdate("base_url", e.target.value)} />
@@ -510,6 +580,16 @@ function ProfileEditCard({
         <Field label="Timeout (seconds)">
           <input type="number" className={inputClass} value={profile.timeout_seconds} onChange={(e) => onUpdate("timeout_seconds", Number(e.target.value))} />
         </Field>
+        <Field label="Thinking Budget (tokens)">
+          <input type="number" className={inputClass} value={profile.thinking_budget_tokens ?? 5000} onChange={(e) => onUpdate("thinking_budget_tokens", Number(e.target.value))} />
+        </Field>
+      </div>
+      <div className="mt-2">
+        <CheckField
+          label="Enable thinking tokens (Claude / o-series models only)"
+          checked={profile.thinking_enabled ?? false}
+          onChange={(v) => onUpdate("thinking_enabled", v)}
+        />
       </div>
     </div>
   );

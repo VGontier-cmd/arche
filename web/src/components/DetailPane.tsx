@@ -1,4 +1,5 @@
 import type { DashboardRun, DashboardSnapshot } from "../types";
+import { downloadRunExport } from "../api/client";
 import { StatusBadge } from "./StatusBadge";
 import { DetailMeta } from "./DetailMeta";
 import { DetailActions } from "./DetailActions";
@@ -38,10 +39,20 @@ export function DetailPane({
 
   return (
     <div className="flex-1 overflow-y-auto px-5 py-4">
-      <h2 className="text-sm mb-3 text-[var(--color-base-content)]">
-        <StatusBadge status={run.status} />{" "}
-        {run.ticketKey}: {run.ticketTitle || ""}
-      </h2>
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <h2 className="text-sm text-[var(--color-base-content)]">
+          <StatusBadge status={run.status} />{" "}
+          {run.ticketKey}: {run.ticketTitle || ""}
+        </h2>
+        <button
+          className="btn-default shrink-0"
+          style={{ fontSize: "11px", padding: "3px 8px" }}
+          onClick={() => downloadRunExport(run.id)}
+          title="Download run report as Markdown"
+        >
+          Export
+        </button>
+      </div>
 
       <DetailMeta run={run} jiraBaseUrl={snapshot.jiraBaseUrl} onViewTicketHistory={onViewTicketHistory} />
       <DetailActions

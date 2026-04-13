@@ -1,4 +1,4 @@
-import type { DashboardRun, DashboardSnapshot, DashboardTimelineItem, OrchestratorConfigView, RepoRule, Repository, RunDetailSnapshot } from "../types";
+import type { DashboardRun, DashboardSnapshot, DashboardTimelineItem, OrchestratorConfigView, RepoRule, Repository, RunDetailSnapshot, RunSchedule } from "../types";
 
 export async function fetchSnapshot(
   runId?: string | null,
@@ -51,6 +51,68 @@ export async function postRespond(
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || res.statusText);
   }
+}
+
+// === Run Export ===
+
+export function downloadRunExport(runId: string): void {
+  const a = document.createElement("a");
+  a.href = `/v1/runs/${runId}/export`;
+  a.download = `run-${runId.slice(0, 8)}.md`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+// === Schedules ===
+
+export async function fetchSchedules(): Promise<RunSchedule[]> {
+  const res = await fetch("/v1/schedules");
+  if (!res.ok) throw new Error(`Fetch schedules failed: ${res.statusText}`);
+  return res.json();
+}
+
+export async function createScheduleApi(data: Partial<RunSchedule>): Promise<RunSchedule> {
+  const res = await fetch("/v1/schedules", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || res.statusText);
+  }
+  return res.json();
+}
+
+export async function updateScheduleApi(id: string, data: Partial<RunSchedule>): Promise<RunSchedule> {
+  const res = await fetch(`/v1/schedules/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || res.statusText);
+  }
+  return res.json();
+}
+
+export async function deleteScheduleApi(id: string): Promise<void> {
+  const res = await fetch(`/v1/schedules/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || res.statusText);
+  }
+}
+
+export async function fireScheduleApi(id: string): Promise<unknown> {
+  const res = await fetch(`/v1/schedules/${id}/fire`, { method: "POST" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || res.statusText);
+  }
+  return res.json();
 }
 
 // === Ticket History ===
@@ -158,6 +220,22 @@ export async function deleteRepoRuleApi(id: string): Promise<void> {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || res.statusText);
   }
+}
+
+// === OpenRouter Models ===
+
+export type OpenRouterModel = {
+  id: string;
+  name: string;
+  description: string;
+  context_length: number;
+};
+
+export async function fetchOpenRouterModels(): Promise<OpenRouterModel[]> {
+  const res = await fetch("/v1/models");
+  if (!res.ok) throw new Error(`Fetch models failed: ${res.statusText}`);
+  const json = await res.json() as { data?: OpenRouterModel[] };
+  return json.data ?? [];
 }
 
 // === Config ===
