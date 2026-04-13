@@ -863,7 +863,7 @@ describe("workflow orchestration", () => {
     ]);
   }, 15_000);
 
-  it("reviewer request_changes sends to needs_human_input, human responds, executor resumes", async () => {
+  it("reviewer request_changes auto-retries executor once before asking human", async () => {
     state.scenario = "review_changes";
 
     const [{ ensureArcheReady }, runsModule, workersModule] = await Promise.all([
@@ -891,17 +891,8 @@ describe("workflow orchestration", () => {
     await runsModule.processRun(accepted.runId!, "worker-1");
     await runsModule.approvePlan(accepted.runId!);
 
-    // First execution: executor runs, reviewer requests changes → needs_human_input
-    await runsModule.claimNextRun("worker-1", 60);
-    const needsInput = await runsModule.processRun(accepted.runId!, "worker-1");
-
-    expect(needsInput.status).toBe("needs_human_input");
-    expect(needsInput.currentRole).toBe("executor");
-
-    // Human reviews reviewer findings and responds
-    await runsModule.respondToRun(accepted.runId!, "Fix the regression guard as requested.");
-
-    // Second execution: executor resumes with reviewer findings, reviewer approves
+    // Single execution: executor → reviewer (request_changes) → auto-retry executor → reviewer (approve)
+    // No human intervention needed — the auto-retry resolves it.
     await runsModule.claimNextRun("worker-1", 60);
     const awaitingPublish = await runsModule.processRun(accepted.runId!, "worker-1");
 

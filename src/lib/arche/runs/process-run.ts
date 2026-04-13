@@ -703,6 +703,7 @@ async function runExecutorPhase(input: {
       validationCommands: commandPolicies.validationCommands,
       cycle: input.currentCycle,
       findings: input.pendingFindings,
+      diffExcerpt: input.run.diffExcerpt ?? "",
       latestHumanResponse: input.run.latestHumanResponse ?? null,
     }),
     profile: executorProfile,
@@ -711,6 +712,7 @@ async function runExecutorPhase(input: {
     worktreePath: input.worktreePath,
     sandboxId: input.sandboxId,
     hooks: input.services.workflowHooks,
+    hasPendingFindings: input.pendingFindings.length > 0,
   });
 
   if (executorResult.output.needsHumanInput) {
@@ -1269,7 +1271,93 @@ export async function processRunWithDeps(
           },
           deps,
         });
-        return reviewerPhase.run;
+
+        // If reviewer requested changes, auto-retry the executor once before
+        // interrupting the human. The auto-retry gets the reviewer findings and
+        // the current diff as context, giving the executor a real chance to
+        // self-correct without a human "yes go" each time.
+        const firstReviewResult = reviewerPhase.run;
+        if (
+          firstReviewResult.status === "needs_human_input" &&
+          firstReviewResult.currentRole === "executor"
+        ) {
+          const autoRetryFindings = Array.isArray(firstReviewResult.latestFindings)
+            ? firstReviewResult.latestFindings
+            : [];
+          const autoRetryCycle = currentCycle + 1;
+
+          await deps.appendSystemRunLog(
+            runId,
+            `reviewer requested changes — auto-retrying executor (cycle ${autoRetryCycle}) before asking human`,
+          );
+          await deps.appendRunEvent(runId, "run.auto_retry_executor", {
+            fromCycle: currentCycle,
+            toCycle: autoRetryCycle,
+            findingCount: autoRetryFindings.length,
+          });
+
+          // Reset from needs_human_input back to executing so the retry can proceed
+          await withSqliteWriteRetry(() =>
+            db
+              .update(runs)
+              .set({ status: "executing", pendingQuestion: null, updatedAt: new Date() })
+              .where(eq(runs.id, runId)),
+          );
+
+          await deps.refreshLease(runId, workerId, config.worker.lease_ttl_seconds);
+
+          const retryExecutorPhase = await runExecutorPhase({
+            runId,
+            workerId,
+            run: firstReviewResult,
+            issue,
+            repository: resolvedRepository,
+            plan,
+            currentCycle: autoRetryCycle,
+            pendingFindings: autoRetryFindings,
+            worktreePath: worktree.worktreePath,
+            sandboxId: sandboxReady.sandboxId,
+            services: {
+              config,
+              jira,
+              gitlab,
+              git,
+              sandbox,
+              workflowHooks,
+            },
+            deps,
+          });
+
+          if (retryExecutorPhase.done) return retryExecutorPhase.run;
+          diffExcerpt = retryExecutorPhase.diffExcerpt;
+
+          const retryReviewerPhase = await runReviewerPhase({
+            runId,
+            workerId,
+            run: retryExecutorPhase.run,
+            issue,
+            repository: resolvedRepository,
+            plan,
+            diffExcerpt,
+            pendingFindings: [],
+            currentCycle: autoRetryCycle,
+            services: {
+              config,
+              jira,
+              gitlab,
+              git,
+              sandbox,
+              workflowHooks,
+            },
+            deps,
+          });
+
+          // After auto-retry, whatever the reviewer decided (approve or needs_human_input)
+          // is final for this worker invocation
+          return retryReviewerPhase.run;
+        }
+
+        return firstReviewResult;
       },
     );
   } catch (error) {

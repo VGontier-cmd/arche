@@ -191,6 +191,7 @@ export function buildExecutorPrompt(input: {
   validationCommands: string[];
   cycle: number;
   findings: ReviewFinding[];
+  diffExcerpt: string;
   latestHumanResponse: string | null;
 }) {
   return [
@@ -210,6 +211,11 @@ export function buildExecutorPrompt(input: {
     "Reviewer findings to address:",
     formatFindings(input.findings),
     "",
+    // When reviewer findings are present, show the current worktree diff so the
+    // executor can see exactly what was already written and make targeted fixes.
+    input.findings.length > 0 && input.diffExcerpt
+      ? `Current worktree diff (what was already implemented — read the files referenced here and fix the issues above):\n${input.diffExcerpt}\n`
+      : "",
     `Allowed commands: ${input.allowedCommands.join(", ") || "(none)"}`,
     `Validation commands run after you finish: ${input.validationCommands.join(", ") || "(none)"}`,
     "",
@@ -470,6 +476,8 @@ export async function runExecutorPatchLoop(input: {
   worktreePath: string;
   sandboxId: string;
   hooks: WorkflowHooks;
+  /** When true, the executor MUST write at least one file — reviewer findings are pending. */
+  hasPendingFindings: boolean;
 }): Promise<RoleOutputResult<"executor">> {
   const config = await getConfig();
   const artifactsPath = buildTaskArtifactsPath(input.run, "executor", input.cycle);
@@ -720,6 +728,16 @@ export async function runExecutorPatchLoop(input: {
             observation = undefined;
             continue;
           }
+        }
+
+        // Hard-fail if reviewer findings were present but executor wrote nothing.
+        // Silently accepting a no-op finish with outstanding findings would cause
+        // the reviewer to see the same code again and request_changes indefinitely.
+        if (filesMutated === 0 && input.hasPendingFindings) {
+          throw new ExternalServiceError(
+            `Executor completed cycle ${input.cycle} without writing any files despite reviewer findings. ` +
+            `The reviewer's findings must be addressed by modifying files before calling finish.`,
+          );
         }
 
         const output: ExecutorRoleOutput = {
