@@ -2,6 +2,7 @@ import {
   approvePlan,
   approvePublish,
   cancelRun,
+  forceApprove,
   rejectPublish,
   respondToRun,
   retryRun,
@@ -10,6 +11,7 @@ import {
 export const DASHBOARD_ACTION_KINDS = [
   "approve_plan",
   "approve_publish",
+  "force_approve",
   "reject_publish",
   "respond",
   "retry",
@@ -76,6 +78,7 @@ export function listAvailableDashboardActions(run: DashboardActionableRun | null
   }
   if (run.status === "needs_human_input") {
     actions.push(buildActionDescriptor(run, "respond"));
+    actions.push(buildActionDescriptor(run, "force_approve"));
   }
   if (run.status === "awaiting_publish_approval") {
     actions.push(buildActionDescriptor(run, "reject_publish"));
@@ -119,6 +122,15 @@ export function buildActionDescriptor(
       hotkey: "x",
       confirmationTitle: `Reject publish for ${run.ticketKey}?`,
       confirmationBody: "The worktree stays retained for inspection and nothing is published.",
+    };
+  }
+  if (kind === "force_approve") {
+    return {
+      kind,
+      label: "Force approve",
+      hotkey: "f",
+      confirmationTitle: `Force approve ${run.ticketKey}?`,
+      confirmationBody: "This skips the reviewer and moves straight to publish approval.",
     };
   }
   if (kind === "respond") {
@@ -170,6 +182,13 @@ export async function executeDashboardAction(input: {
     return {
       selectedRunId: run.id,
       message: `Publish rejected for ${run.ticketKey}.`,
+    };
+  }
+  if (input.kind === "force_approve") {
+    const run = await forceApprove(input.runId);
+    return {
+      selectedRunId: run.id,
+      message: `Force-approved ${run.ticketKey}. Waiting for publish approval.`,
     };
   }
   if (input.kind === "respond") {

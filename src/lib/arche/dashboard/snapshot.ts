@@ -6,6 +6,8 @@ import { getConfig, type OrchestratorConfig } from "../../config";
 import { db } from "../../db/client";
 import { readSecretEnv } from "../../env";
 import {
+  repositories,
+  repoRules,
   runCommands,
   runEvents,
   runLogs,
@@ -71,13 +73,12 @@ export type DashboardSummary = {
   workerCount: number;
   onlineWorkerCount: number;
   offlineWorkerCount: number;
-  totalCostUsd: number;
-  avgDurationSeconds: number | null;
 };
 
 export type DashboardServiceStatus = {
   workerRunning: boolean;
   serverRunning: boolean;
+  dockerRunning: boolean;
   serverUrl: string;
 };
 
@@ -97,27 +98,36 @@ export type DashboardCredentialEnvStatus = {
   openRouter: boolean;
   /** `USER_GITLAB_BASE_URL` and `USER_GITLAB_TOKEN`. */
   gitlab: boolean;
+  /** `USER_GITHUB_TOKEN`. */
+  github: boolean;
   /** `USER_JIRA_BASE_URL`, `USER_JIRA_EMAIL`, and `USER_JIRA_API_TOKEN`. */
   jira: boolean;
 };
 
-export type DashboardSnapshot = {
+/** Light snapshot for SSE streaming — lists + metadata only, no run details. */
+export type DashboardListSnapshot = {
   refreshedAt: string;
   offlineThresholdMs: number;
   jiraBaseUrl: string | null;
+  repositoryCount: number;
+  ruleCount: number;
   summary: DashboardSummary;
   services: DashboardServiceStatus;
   systemStats: DashboardSystemStats;
   credentialEnv: DashboardCredentialEnvStatus;
   workers: DashboardWorker[];
+  inboxRuns: Array<ReturnType<typeof presentRun>>;
+  activeRuns: Array<ReturnType<typeof presentRun>>;
+  recentRuns: Array<ReturnType<typeof presentRun>>;
+};
+
+/** Full snapshot including selected run details. */
+export type DashboardSnapshot = DashboardListSnapshot & {
   selectedWorkerId: string | null;
   selectedWorker: DashboardWorker | null;
   selectedRunId: string | null;
   selectedRun: ReturnType<typeof presentRun> | null;
   currentRun: ReturnType<typeof presentRun> | null;
-  inboxRuns: Array<ReturnType<typeof presentRun>>;
-  activeRuns: Array<ReturnType<typeof presentRun>>;
-  recentRuns: Array<ReturnType<typeof presentRun>>;
   logs: Array<ReturnType<typeof presentRunLog>>;
   events: Array<ReturnType<typeof presentRunEvent>>;
   commands: Array<ReturnType<typeof presentRunCommand>>;
@@ -167,11 +177,16 @@ export async function getDashboardSnapshot(options: {
   const serverPort = Number(process.env.ARCHE_SERVER_PORT || "8787");
   const serverUrl = `http://${serverHost}:${Number.isFinite(serverPort) ? serverPort : 8787}/health`;
   const serverRunning = await probeServerHealth(serverUrl);
+  const dockerRunning = await probeDockerHealth();
 
-  const [workerRows, runRows] = await Promise.all([
+  const [workerRows, runRows, repoCountResult, ruleCountResult] = await Promise.all([
     db.select().from(workers).orderBy(desc(workers.lastHeartbeatAt), asc(workers.id)),
     db.select().from(runs).orderBy(desc(runs.updatedAt), desc(runs.createdAt)),
+    db.select({ value: count() }).from(repositories),
+    db.select({ value: count() }).from(repoRules),
   ]);
+  const repositoryCount = repoCountResult[0]?.value ?? 0;
+  const ruleCount = ruleCountResult[0]?.value ?? 0;
 
   const dashboardWorkers = workerRows
     .map((worker) => deriveWorkerPresentation(worker, offlineThresholdMs, nowMs))
@@ -189,23 +204,6 @@ export async function getDashboardSnapshot(options: {
   const workerById = new Map(dashboardWorkers.map((worker) => [worker.id, worker]));
 
   const visibleRunRows = runRows.filter((run) => !run.archivedAt);
-
-  // Aggregate cost and duration across visible runs
-  let totalCostUsd = 0;
-  let totalDurationSeconds = 0;
-  let durationCount = 0;
-  for (const run of visibleRunRows) {
-    if (run.estimatedCostUsd !== null) {
-      totalCostUsd += Number(run.estimatedCostUsd);
-    }
-    if (run.startedAt && run.finishedAt) {
-      const start = run.startedAt instanceof Date ? run.startedAt.getTime() : new Date(run.startedAt as string).getTime();
-      const end = run.finishedAt instanceof Date ? run.finishedAt.getTime() : new Date(run.finishedAt as string).getTime();
-      totalDurationSeconds += (end - start) / 1000;
-      durationCount++;
-    }
-  }
-  const avgDurationSeconds = durationCount > 0 ? Math.round(totalDurationSeconds / durationCount) : null;
 
   const inboxRows = visibleRunRows.filter((run) => INBOX_STATUSES.has(run.status));
   const activeRows = visibleRunRows.filter(
@@ -283,6 +281,8 @@ export async function getDashboardSnapshot(options: {
     refreshedAt: new Date(nowMs).toISOString(),
     offlineThresholdMs,
     jiraBaseUrl,
+    repositoryCount,
+    ruleCount,
     credentialEnv: deriveDashboardCredentialEnvStatus(config),
     summary: {
       inboxCount: inboxRows.length,
@@ -291,12 +291,11 @@ export async function getDashboardSnapshot(options: {
       workerCount: dashboardWorkers.length,
       onlineWorkerCount,
       offlineWorkerCount: dashboardWorkers.filter((worker) => worker.offline).length,
-      totalCostUsd,
-      avgDurationSeconds,
     },
     services: {
       workerRunning: onlineWorkerCount > 0,
       serverRunning,
+      dockerRunning,
       serverUrl,
     },
     systemStats: {
@@ -330,6 +329,85 @@ export async function getDashboardSnapshot(options: {
   };
 }
 
+/**
+ * Light snapshot for SSE streaming: lists + metadata, no run details.
+ * Much smaller payload than the full snapshot.
+ */
+export async function getDashboardListSnapshot(options: {
+  nowMs?: number;
+} = {}): Promise<DashboardListSnapshot> {
+  const config = await getConfig();
+  const nowMs = options.nowMs ?? Date.now();
+  const offlineThresholdMs = Math.max(5_000, config.worker.poll_interval_seconds * 3_000);
+  const serverHost = process.env.ARCHE_SERVER_HOST?.trim() || "127.0.0.1";
+  const serverPort = Number(process.env.ARCHE_SERVER_PORT || "8787");
+  const serverUrl = `http://${serverHost}:${Number.isFinite(serverPort) ? serverPort : 8787}/health`;
+  const serverRunning = await probeServerHealth(serverUrl);
+  const dockerRunning = await probeDockerHealth();
+
+  const [workerRows, runRows, repoCountResult, ruleCountResult] = await Promise.all([
+    db.select().from(workers).orderBy(desc(workers.lastHeartbeatAt), asc(workers.id)),
+    db.select().from(runs).orderBy(desc(runs.updatedAt), desc(runs.createdAt)),
+    db.select({ value: count() }).from(repositories),
+    db.select({ value: count() }).from(repoRules),
+  ]);
+  const repositoryCount = repoCountResult[0]?.value ?? 0;
+  const ruleCount = ruleCountResult[0]?.value ?? 0;
+
+  const dashboardWorkers = workerRows
+    .map((worker) => deriveWorkerPresentation(worker, offlineThresholdMs, nowMs))
+    .sort((left, right) => {
+      if (left.offline !== right.offline) return left.offline ? 1 : -1;
+      const statusDelta = WORKER_STATUS_PRIORITY[left.status] - WORKER_STATUS_PRIORITY[right.status];
+      if (statusDelta !== 0) return statusDelta;
+      return (left.heartbeatAgeMs ?? Number.MAX_SAFE_INTEGER) - (right.heartbeatAgeMs ?? Number.MAX_SAFE_INTEGER);
+    });
+  const onlineWorkerCount = dashboardWorkers.filter((worker) => !worker.offline).length;
+
+  const visibleRunRows = runRows.filter((run) => !run.archivedAt);
+  const inboxRows = visibleRunRows.filter((run) => INBOX_STATUSES.has(run.status));
+  const activeRows = visibleRunRows.filter(
+    (run) => !INBOX_STATUSES.has(run.status) && !TERMINAL_STATUSES.has(run.status),
+  );
+  const recentRows = visibleRunRows.filter((run) => TERMINAL_STATUSES.has(run.status));
+
+  const rawJiraUrl = readSecretEnv("USER_JIRA_BASE_URL");
+  const jiraBaseUrl = rawJiraUrl ? rawJiraUrl.replace(/\/+$/, "") : null;
+
+  return {
+    refreshedAt: new Date(nowMs).toISOString(),
+    offlineThresholdMs,
+    jiraBaseUrl,
+    repositoryCount,
+    ruleCount,
+    credentialEnv: deriveDashboardCredentialEnvStatus(config),
+    summary: {
+      inboxCount: inboxRows.length,
+      activeCount: activeRows.length,
+      failedCount: visibleRunRows.filter((run) => FAILED_STATUSES.has(run.status)).length,
+      workerCount: dashboardWorkers.length,
+      onlineWorkerCount,
+      offlineWorkerCount: dashboardWorkers.filter((worker) => worker.offline).length,
+    },
+    services: {
+      workerRunning: onlineWorkerCount > 0,
+      serverRunning,
+      dockerRunning,
+      serverUrl,
+    },
+    systemStats: {
+      ramMb: Math.round(process.memoryUsage.rss() / 1_048_576),
+      ramTotalMb: Math.round(totalmem() / 1_048_576),
+      loadAvg1: loadavg()[0],
+      cpuCount: cpus().length,
+    },
+    workers: dashboardWorkers,
+    inboxRuns: inboxRows.map(presentRun),
+    activeRuns: activeRows.map(presentRun),
+    recentRuns: recentRows.map(presentRun),
+  };
+}
+
 async function probeServerHealth(serverUrl: string) {
   try {
     const response = await fetch(serverUrl, { signal: AbortSignal.timeout(500) });
@@ -337,6 +415,27 @@ async function probeServerHealth(serverUrl: string) {
   } catch {
     return false;
   }
+}
+
+let cachedDockerHealth: { value: boolean; expiresAt: number } | null = null;
+
+async function probeDockerHealth(): Promise<boolean> {
+  const now = Date.now();
+  if (cachedDockerHealth && now < cachedDockerHealth.expiresAt) {
+    return cachedDockerHealth.value;
+  }
+  let result = false;
+  try {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const execFileAsync = promisify(execFile);
+    await execFileAsync("docker", ["info"], { timeout: 3000 });
+    result = true;
+  } catch {
+    result = false;
+  }
+  cachedDockerHealth = { value: result, expiresAt: now + 30_000 };
+  return result;
 }
 
 function resolveSelectedRunRow(runRows: RunRow[], selectedRunId: string | null | undefined) {
@@ -371,18 +470,85 @@ function deriveDashboardCredentialEnvStatus(
     readSecretEnv("USER_GITLAB_BASE_URL") !== null &&
     readSecretEnv("USER_GITLAB_TOKEN") !== null;
 
+  const github = readSecretEnv("USER_GITHUB_TOKEN") !== null;
+
   const jira =
     readSecretEnv("USER_JIRA_BASE_URL") !== null &&
     readSecretEnv("USER_JIRA_EMAIL") !== null &&
     readSecretEnv("USER_JIRA_API_TOKEN") !== null;
 
-  return { openRouter, gitlab, jira };
+  return { openRouter, gitlab, github, jira };
 }
 
 /**
  * Fetches the full timeline for a run (no per-table limits) with offset/limit pagination.
  * Returns `{ items, total }`.
  */
+/** Lightweight detail fetch for a single run — no system probes, no worker queries. */
+export type RunDetailSnapshot = {
+  selectedRunId: string;
+  selectedRun: ReturnType<typeof presentRun>;
+  currentRun: ReturnType<typeof presentRun>;
+  logs: Array<ReturnType<typeof presentRunLog>>;
+  events: Array<ReturnType<typeof presentRunEvent>>;
+  commands: Array<ReturnType<typeof presentRunCommand>>;
+  messages: Array<ReturnType<typeof presentRunMessage>>;
+  tasks: Array<ReturnType<typeof presentRunTask>>;
+  timeline: DashboardTimelineItem[];
+  timelineTotal: number;
+};
+
+export async function getRunDetailSnapshot(runId: string): Promise<RunDetailSnapshot | null> {
+  const [runRow] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
+  if (!runRow) return null;
+
+  const [logRows, eventRows, commandRows, messageRows, taskRows] = await Promise.all([
+    db.select().from(runLogs).where(eq(runLogs.runId, runId)).orderBy(asc(runLogs.timestamp), asc(runLogs.id)).limit(80),
+    db.select().from(runEvents).where(eq(runEvents.runId, runId)).orderBy(asc(runEvents.timestamp), asc(runEvents.id)).limit(120),
+    db.select().from(runCommands).where(eq(runCommands.runId, runId)).orderBy(asc(runCommands.timestamp), asc(runCommands.id)).limit(80),
+    db.select().from(runMessages).where(eq(runMessages.runId, runId)).orderBy(asc(runMessages.sequence), asc(runMessages.id)).limit(120),
+    db.select().from(runTasks).where(eq(runTasks.runId, runId)).orderBy(asc(runTasks.startedAt), asc(runTasks.id)).limit(40),
+  ]);
+
+  const presentedRun = presentRun(runRow);
+  const presentLogs = logRows.map(presentRunLog);
+  const presentEvents = eventRows.map(presentRunEvent);
+  const presentCommands = commandRows.map(presentRunCommand);
+  const presentMessages = messageRows.map(presentRunMessage);
+  const presentTasks = taskRows.map(presentRunTask);
+
+  const timeline = buildTimeline({
+    logs: presentLogs,
+    events: presentEvents,
+    commands: presentCommands,
+    messages: presentMessages,
+    tasks: presentTasks,
+  });
+
+  // Total count (beyond limited fetch)
+  const counts = await Promise.all([
+    db.select({ c: count() }).from(runLogs).where(eq(runLogs.runId, runId)),
+    db.select({ c: count() }).from(runEvents).where(eq(runEvents.runId, runId)),
+    db.select({ c: count() }).from(runCommands).where(eq(runCommands.runId, runId)),
+    db.select({ c: count() }).from(runMessages).where(eq(runMessages.runId, runId)),
+    db.select({ c: count() }).from(runTasks).where(eq(runTasks.runId, runId)),
+  ]);
+  const timelineTotal = counts.reduce((sum, rows) => sum + (rows[0]?.c ?? 0), 0);
+
+  return {
+    selectedRunId: runId,
+    selectedRun: presentedRun,
+    currentRun: presentedRun,
+    logs: presentLogs,
+    events: presentEvents,
+    commands: presentCommands,
+    messages: presentMessages,
+    tasks: presentTasks,
+    timeline,
+    timelineTotal,
+  };
+}
+
 export async function getRunTimeline(
   runId: string,
   options: { offset?: number; limit?: number } = {},

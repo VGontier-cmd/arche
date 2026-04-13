@@ -89,6 +89,85 @@ a:hover {
   background: #5a1a22;
 }
 
+/* Markdown prose styling */
+.arche-prose {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-base-content);
+}
+.arche-prose h1,
+.arche-prose h2,
+.arche-prose h3,
+.arche-prose h4 {
+  color: #e6edf3;
+  font-weight: 600;
+  margin: 12px 0 6px;
+  line-height: 1.3;
+}
+.arche-prose h1 { font-size: 16px; }
+.arche-prose h2 { font-size: 14px; }
+.arche-prose h3 { font-size: 13px; }
+.arche-prose h4 { font-size: 12px; }
+.arche-prose p {
+  margin: 6px 0;
+}
+.arche-prose ul,
+.arche-prose ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+.arche-prose li {
+  margin: 2px 0;
+}
+.arche-prose code {
+  background: var(--color-base-300);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+.arche-prose pre {
+  background: var(--color-base-300);
+  padding: 10px;
+  border-radius: var(--rounded-box);
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.arche-prose pre code {
+  background: none;
+  padding: 0;
+}
+.arche-prose strong {
+  color: #e6edf3;
+  font-weight: 600;
+}
+.arche-prose blockquote {
+  border-left: 3px solid var(--border-color);
+  padding-left: 12px;
+  color: var(--fg2);
+  margin: 8px 0;
+}
+.arche-prose table {
+  border-collapse: collapse;
+  margin: 8px 0;
+  width: 100%;
+}
+.arche-prose th,
+.arche-prose td {
+  border: 1px solid var(--border-color);
+  padding: 4px 8px;
+  text-align: left;
+  font-size: 11px;
+}
+.arche-prose th {
+  background: var(--color-base-300);
+  font-weight: 600;
+}
+.arche-prose hr {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: 12px 0;
+}
+
 @keyframes slideIn {
   from {
     opacity: 0;

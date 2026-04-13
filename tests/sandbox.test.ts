@@ -41,6 +41,7 @@ describe("SandboxManager", () => {
         lease_ttl_seconds: 900,
         max_agent_steps: 8,
         max_run_seconds: 1200,
+        human_input_timeout_hours: 24,
       },
       policy: {
         assignee: "agent-dev",
@@ -77,7 +78,6 @@ describe("SandboxManager", () => {
       },
       workflow: {
         mode: "plan_execute_review",
-        max_review_cycles: 3,
         require_plan_approval: true,
         require_publish_approval: true,
       },

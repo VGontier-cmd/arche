@@ -11,11 +11,13 @@ export function DetailActions({
   onAction,
   onOpenRespond,
   gitlabConfigured,
+  githubConfigured,
 }: {
   run: DashboardRun;
   onAction: (runId: string, action: string) => void;
   onOpenRespond: (runId: string, title: string) => void;
   gitlabConfigured: boolean;
+  githubConfigured: boolean;
 }) {
   const buttons: React.ReactNode[] = [];
 
@@ -84,6 +86,15 @@ export function DetailActions({
     );
     buttons.push(
       <button
+        key="force-approve"
+        className="btn-default"
+        onClick={() => onAction(run.id, "force-approve")}
+      >
+        Force Approve<Kbd>f</Kbd>
+      </button>,
+    );
+    buttons.push(
+      <button
         key="cancel-human"
         className="btn-danger"
         onClick={() => onAction(run.id, "cancel")}
@@ -93,14 +104,14 @@ export function DetailActions({
     );
   }
 
-  if (run.status === "pushed" && gitlabConfigured) {
+  if (run.status === "pushed" && (gitlabConfigured || githubConfigured)) {
     buttons.push(
       <button
         key="create-mr"
         className="btn-primary"
         onClick={() => onAction(run.id, "create-mr")}
       >
-        Create Merge Request
+        {githubConfigured && !gitlabConfigured ? "Create Pull Request" : "Create Merge Request"}
       </button>,
     );
   }
@@ -112,9 +123,20 @@ export function DetailActions({
         className="btn-default"
         onClick={() => onAction(run.id, "retry")}
       >
-        Retry<Kbd>t</Kbd>
+        Retry (full)<Kbd>t</Kbd>
       </button>,
     );
+    if (run.planMarkdown) {
+      buttons.push(
+        <button
+          key="retry-executor"
+          className="btn-default"
+          onClick={() => onAction(run.id, "retry-executor")}
+        >
+          Re-execute
+        </button>,
+      );
+    }
   }
 
   const terminalStatuses = [

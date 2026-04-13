@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { DashboardTimelineItem } from "../types";
 import { fetchTimeline } from "../api/client";
 import { formatTime } from "../lib/format";
@@ -60,6 +60,23 @@ export function Timeline({
     }
   }, [runId, loading, timeline, extraItems]);
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const prevCountRef = useRef(0);
+
+  // Auto-scroll to bottom when new items arrive if user is near the bottom
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const currentCount = timeline.length + extraItems.length;
+    if (currentCount > prevCountRef.current) {
+      const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+      if (isNearBottom) {
+        el.scrollTop = el.scrollHeight;
+      }
+    }
+    prevCountRef.current = currentCount;
+  }, [timeline.length, extraItems.length]);
+
   if (timeline.length === 0 && extraItems.length === 0) return null;
 
   // Merge: extra items (older, from pagination) + snapshot timeline items
@@ -72,7 +89,7 @@ export function Timeline({
       <h3 className="text-[11px] font-semibold text-[var(--fg2)] uppercase tracking-wide mb-2">
         Timeline ({allItems.length}/{timelineTotal})
       </h3>
-      <div className="flex flex-col text-[11px] max-h-[400px] overflow-y-auto rounded-[var(--rounded-box)] border border-[var(--border-color)]">
+      <div ref={scrollRef} className="flex flex-col text-[11px] max-h-[400px] overflow-y-auto rounded-[var(--rounded-box)] border border-[var(--border-color)]">
         {hasMore && (
           <button
             onClick={loadOlder}

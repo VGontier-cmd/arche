@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -22,6 +22,7 @@ const state = {
   committedBranches: [] as string[],
   providerInvocations: [] as Array<{ role: string; cycle: number; modelName: string }>,
   executorCalls: 0,
+  executorNeedsWrite: true,
   reviewerCalls: 0,
 };
 
@@ -110,11 +111,14 @@ vi.mock("../src/lib/arche/git", () => {
 
     async createWorktree(_repository: unknown, branchName: string, issueKey: string) {
       state.worktreePath = `/tmp/arche/${issueKey}/${branchName.replaceAll("/", "-")}`;
+      await mkdir(state.worktreePath, { recursive: true });
       return state.worktreePath;
     }
 
-    async cleanupWorktree() {
-      return;
+    async cleanupWorktree(_worktreePath?: string) {
+      if (state.worktreePath) {
+        await rm(state.worktreePath, { recursive: true, force: true });
+      }
     }
 
     async isWorktreeValid() {
@@ -244,6 +248,7 @@ describe("workflow orchestration", () => {
     state.committedBranches = [];
     state.providerInvocations = [];
     state.executorCalls = 0;
+    state.executorNeedsWrite = true;
     state.reviewerCalls = 0;
 
     const configPath = join(workspace, "orchestrator.yml");
@@ -295,7 +300,6 @@ describe("workflow orchestration", () => {
         "    - pnpm test",
         "workflow:",
         "  mode: plan_execute_review",
-        "  max_review_cycles: 3",
         "  require_plan_approval: true",
         "  require_publish_approval: true",
         "executors:",
@@ -381,8 +385,9 @@ describe("workflow orchestration", () => {
         }
 
       if (role === "executor") {
-        state.executorCalls += 1;
-        if (state.scenario === "needs_input" && state.executorCalls === 1) {
+        if (state.scenario === "needs_input" && state.executorCalls === 0) {
+          state.executorCalls += 1;
+          state.executorNeedsWrite = true;
           return providerResponse(
             JSON.stringify({
                 action: "needs_human_input",
@@ -392,6 +397,21 @@ describe("workflow orchestration", () => {
           );
         }
 
+        // Must write a file before calling finish (executor validates this)
+        if (state.executorNeedsWrite) {
+          state.executorNeedsWrite = false;
+          return providerResponse(
+            JSON.stringify({
+              action: "write_file",
+              path: "src/components/Popup.tsx",
+              content: "// Updated popup alignment\nexport const Popup = () => <div>Fixed</div>;\n",
+            }),
+          );
+        }
+
+        // After writing, call finish and reset for next executor invocation
+        state.executorCalls += 1;
+        state.executorNeedsWrite = true;
         if (state.scenario === "review_changes" && state.executorCalls === 1) {
           return providerResponse(
             JSON.stringify({
@@ -553,6 +573,7 @@ describe("workflow orchestration", () => {
     ]);
     expect(state.providerInvocations).toEqual([
       { role: "planner", cycle: 0, modelName: "test-planner-model" },
+      { role: "executor", cycle: 1, modelName: "test-executor-model" },
       { role: "executor", cycle: 1, modelName: "test-executor-model" },
       { role: "reviewer", cycle: 1, modelName: "test-reviewer-model" },
     ]);
@@ -837,11 +858,12 @@ describe("workflow orchestration", () => {
       { role: "planner", cycle: 0, modelName: "test-planner-model" },
       { role: "executor", cycle: 1, modelName: "test-executor-model" },
       { role: "executor", cycle: 1, modelName: "test-executor-model" },
+      { role: "executor", cycle: 1, modelName: "test-executor-model" },
       { role: "reviewer", cycle: 1, modelName: "test-reviewer-model" },
     ]);
   }, 15_000);
 
-  it("loops reviewer findings back into executor until approval", async () => {
+  it("reviewer request_changes sends to needs_human_input, human responds, executor resumes", async () => {
     state.scenario = "review_changes";
 
     const [{ ensureArcheReady }, runsModule, workersModule] = await Promise.all([
@@ -864,10 +886,22 @@ describe("workflow orchestration", () => {
       },
     });
 
+    // Planning
     await runsModule.claimNextRun("worker-1", 60);
     await runsModule.processRun(accepted.runId!, "worker-1");
     await runsModule.approvePlan(accepted.runId!);
 
+    // First execution: executor runs, reviewer requests changes → needs_human_input
+    await runsModule.claimNextRun("worker-1", 60);
+    const needsInput = await runsModule.processRun(accepted.runId!, "worker-1");
+
+    expect(needsInput.status).toBe("needs_human_input");
+    expect(needsInput.currentRole).toBe("executor");
+
+    // Human reviews reviewer findings and responds
+    await runsModule.respondToRun(accepted.runId!, "Fix the regression guard as requested.");
+
+    // Second execution: executor resumes with reviewer findings, reviewer approves
     await runsModule.claimNextRun("worker-1", 60);
     const awaitingPublish = await runsModule.processRun(accepted.runId!, "worker-1");
 
@@ -884,12 +918,17 @@ describe("workflow orchestration", () => {
       "executor:2:completed",
       "reviewer:2:completed",
     ]);
-    expect(state.providerInvocations).toEqual([
-      { role: "planner", cycle: 0, modelName: "test-planner-model" },
-      { role: "executor", cycle: 1, modelName: "test-executor-model" },
-      { role: "reviewer", cycle: 1, modelName: "test-reviewer-model" },
-      { role: "executor", cycle: 2, modelName: "test-executor-model" },
-      { role: "reviewer", cycle: 2, modelName: "test-reviewer-model" },
+    expect(state.providerInvocations.map((i) => i.role)).toEqual([
+      "planner",
+      "executor", "executor",
+      "reviewer",
+      "executor", "executor",
+      "reviewer",
     ]);
+    expect(state.providerInvocations[0]).toEqual({ role: "planner", cycle: 0, modelName: "test-planner-model" });
+    expect(state.providerInvocations[1]).toEqual({ role: "executor", cycle: 1, modelName: "test-executor-model" });
+    expect(state.providerInvocations[3]).toEqual({ role: "reviewer", cycle: 1, modelName: "test-reviewer-model" });
+    expect(state.providerInvocations[4]).toEqual({ role: "executor", cycle: 2, modelName: "test-executor-model" });
+    expect(state.providerInvocations[6]).toEqual({ role: "reviewer", cycle: 2, modelName: "test-reviewer-model" });
   }, 15_000);
 });

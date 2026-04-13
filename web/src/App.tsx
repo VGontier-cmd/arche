@@ -1,14 +1,23 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useDashboard } from "./hooks/useDashboard";
+import { useHashRouter } from "./hooks/useHashRouter";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
-import { postRespond, postRunAction } from "./api/client";
+import { postRespond, postRunAction, triggerManualRun, stopWorkerApi, restartWorkerApi, purgeOfflineWorkersApi } from "./api/client";
 import { useToast } from "./context/ToastContext";
 import { Header } from "./components/Header";
 import { KpiCards } from "./components/KpiCards";
+import { NavSidebar } from "./components/NavSidebar";
 import { Sidebar } from "./components/Sidebar";
 import { DetailPane } from "./components/DetailPane";
+import { RepositoriesView } from "./components/RepositoriesView";
+import { RulesView } from "./components/RulesView";
+import { SettingsView } from "./components/SettingsView";
 import { RespondModal } from "./components/RespondModal";
 import { ConfirmModal } from "./components/ConfirmModal";
+import { TriggerRunModal } from "./components/TriggerRunModal";
+import { DoctorBanner } from "./components/DoctorBanner";
+import { QuickReferenceOverlay } from "./components/QuickReferenceOverlay";
+import { SetupWizard } from "./components/SetupWizard";
 import { SkeletonLoader } from "./components/SkeletonLoader";
 
 const DESTRUCTIVE_ACTIONS: Record<string, { title: string; body: string; label: string }> = {
@@ -30,10 +39,20 @@ const DESTRUCTIVE_ACTIONS: Record<string, { title: string; body: string; label: 
 };
 
 export default function App() {
-  const { snapshot, selectedRunId, selectRun, refresh, connectionState, applyOptimisticUpdate } =
-    useDashboard();
+  const { activeView, initialRunId, setRoute } = useHashRouter();
+  const { snapshot, selectedRunId, selectRun: selectRunInner, refresh, connectionInfo, applyOptimisticUpdate } =
+    useDashboard(initialRunId);
   const toast = useToast();
   const searchRef = useRef<HTMLInputElement>(null);
+
+  const selectRun = useCallback((id: string | null) => {
+    selectRunInner(id);
+    setRoute("runs", id);
+  }, [selectRunInner, setRoute]);
+  const setActiveView = useCallback((view: typeof activeView) => setRoute(view), [setRoute]);
+  const [triggerRunOpen, setTriggerRunOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [wizardDismissed, setWizardDismissed] = useState(false);
 
   const [modal, setModal] = useState<{
     runId: string;
@@ -88,13 +107,13 @@ export default function App() {
 
   const executeAction = useCallback(
     async (runId: string, action: string) => {
-      // Optimistic status mapping
       const optimisticStatus: Record<string, string> = {
         "approve-plan": "executing",
         "approve-publish": "pushed",
         "reject-publish": "publish_rejected",
         cancel: "cancelled",
         retry: "pending",
+        "retry-executor": "pending",
       };
       const newStatus = optimisticStatus[action];
       if (newStatus) {
@@ -109,7 +128,6 @@ export default function App() {
         await refresh();
         toast.success("Done");
       } catch (e) {
-        // Revert optimistic update on error
         await refresh();
         toast.error("Action failed: " + (e instanceof Error ? e.message : e));
       }
@@ -172,73 +190,125 @@ export default function App() {
     [modal, refresh, toast],
   );
 
+  const handleTriggerRun = useCallback(
+    async (ticketKey: string, force: boolean) => {
+      setTriggerRunOpen(false);
+      try {
+        await triggerManualRun(ticketKey, force);
+        setActiveView("runs");
+        await refresh();
+        toast.success(`Run triggered for ${ticketKey}`);
+      } catch (e) {
+        toast.error("Trigger failed: " + (e instanceof Error ? e.message : e));
+      }
+    },
+    [refresh, toast],
+  );
+
+  const handleStopWorker = useCallback(
+    async (workerId: string) => {
+      try {
+        await stopWorkerApi(workerId);
+        toast.success("Worker stop signal sent");
+      } catch (e) {
+        toast.error("Failed to stop worker: " + (e instanceof Error ? e.message : e));
+      }
+    },
+    [toast],
+  );
+
+  const handleRestartWorker = useCallback(
+    async (workerId: string) => {
+      try {
+        await restartWorkerApi(workerId);
+        toast.success("Worker restart initiated");
+      } catch (e) {
+        toast.error("Failed to restart worker: " + (e instanceof Error ? e.message : e));
+      }
+    },
+    [toast],
+  );
+
+  const handlePurgeOffline = useCallback(async () => {
+    try {
+      const result = await purgeOfflineWorkersApi();
+      toast.success(`${result.purged.length} offline worker(s) removed`);
+    } catch (e) {
+      toast.error("Purge failed: " + (e instanceof Error ? e.message : e));
+    }
+  }, [toast]);
+
   // Flat list of all run IDs for j/k navigation
   const allRunIds = useMemo(() => {
     if (!snapshot) return [];
     return [...snapshot.inboxRuns, ...snapshot.activeRuns, ...snapshot.recentRuns].map((r) => r.id);
   }, [snapshot]);
 
-  const modalOpen = modal !== null || confirmModal !== null;
+  const modalOpen = modal !== null || confirmModal !== null || triggerRunOpen || helpOpen;
 
   const shortcuts = useMemo(() => {
     const run = snapshot?.selectedRun;
     const bindings: Record<string, () => void> = {};
 
-    // Run navigation
-    bindings["j"] = bindings["ArrowDown"] = () => {
-      if (!allRunIds.length) return;
-      const idx = selectedRunId ? allRunIds.indexOf(selectedRunId) : -1;
-      const next = allRunIds[Math.min(idx + 1, allRunIds.length - 1)];
-      if (next) selectRun(next);
-    };
-    bindings["k"] = bindings["ArrowUp"] = () => {
-      if (!allRunIds.length) return;
-      const idx = selectedRunId ? allRunIds.indexOf(selectedRunId) : allRunIds.length;
-      const prev = allRunIds[Math.max(idx - 1, 0)];
-      if (prev) selectRun(prev);
-    };
+    // Only enable run shortcuts when on runs view
+    if (activeView === "runs") {
+      bindings["j"] = bindings["ArrowDown"] = () => {
+        if (!allRunIds.length) return;
+        const idx = selectedRunId ? allRunIds.indexOf(selectedRunId) : -1;
+        const next = allRunIds[Math.min(idx + 1, allRunIds.length - 1)];
+        if (next) selectRun(next);
+      };
+      bindings["k"] = bindings["ArrowUp"] = () => {
+        if (!allRunIds.length) return;
+        const idx = selectedRunId ? allRunIds.indexOf(selectedRunId) : allRunIds.length;
+        const prev = allRunIds[Math.max(idx - 1, 0)];
+        if (prev) selectRun(prev);
+      };
+      bindings["/"] = () => searchRef.current?.focus();
+    }
 
-    // Focus search
-    bindings["/"] = () => searchRef.current?.focus();
-
-    // Escape closes modals (already handled by modals themselves, but useful as fallback)
     bindings["Escape"] = () => {
-      if (modal) setModal(null);
+      if (helpOpen) setHelpOpen(false);
+      else if (triggerRunOpen) setTriggerRunOpen(false);
+      else if (modal) setModal(null);
       else if (confirmModal) setConfirmModal(null);
     };
 
-    if (!run) return bindings;
+    // Help overlay shortcut
+    bindings["?"] = () => setHelpOpen((prev) => !prev);
 
-    // Contextual approve
+    // Trigger run shortcut
+    bindings["n"] = () => {
+      if (!modalOpen) setTriggerRunOpen(true);
+    };
+
+    if (!run || activeView !== "runs") return bindings;
+
     if (run.status === "awaiting_plan_approval") {
       bindings["a"] = () => handleAction(run.id, "approve-plan");
     } else if (run.status === "awaiting_publish_approval") {
       bindings["a"] = () => handleAction(run.id, "approve-publish");
     }
 
-    // Respond
     if (run.status === "needs_human_input") {
       bindings["h"] = () => handleOpenRespond(run.id, "Respond to the run");
     }
 
-    // Reject publish
     if (run.status === "awaiting_publish_approval") {
       bindings["x"] = () => handleAction(run.id, "reject-publish");
     }
 
-    // Cancel (non-terminal)
     const terminalStatuses = ["success", "pushed", "failed", "cancelled", "publish_rejected"];
     if (!terminalStatuses.includes(run.status)) {
       bindings["c"] = () => handleAction(run.id, "cancel");
     }
 
-    // Retry
     if (run.status === "failed") {
       bindings["t"] = () => handleAction(run.id, "retry");
     }
 
     return bindings;
-  }, [snapshot, selectedRunId, allRunIds, selectRun, handleAction, handleOpenRespond, modal, confirmModal]);
+  }, [snapshot, selectedRunId, allRunIds, selectRun, handleAction, handleOpenRespond, modal, confirmModal, activeView, modalOpen, triggerRunOpen]);
 
   useKeyboardShortcuts(shortcuts, modalOpen);
 
@@ -247,28 +317,59 @@ export default function App() {
   }
 
   return (
-    <>
-      <Header workers={snapshot.workers} services={snapshot.services} systemStats={snapshot.systemStats} refreshedAt={snapshot.refreshedAt} connectionState={connectionState} />
-      <KpiCards summary={snapshot.summary} />
-      <div className="flex flex-col lg:flex-row lg:h-[calc(100vh-130px)]">
-        <Sidebar
-          ref={searchRef}
-          inboxRuns={snapshot.inboxRuns}
-          activeRuns={snapshot.activeRuns}
-          recentRuns={snapshot.recentRuns}
-          selectedRunId={selectedRunId}
-          onSelectRun={selectRun}
-          jiraBaseUrl={snapshot.jiraBaseUrl}
-          checkedRunIds={checkedRunIds}
-          onToggleCheck={handleToggleCheck}
-          onCheckAllInbox={handleCheckAllInbox}
-          onBulkAction={handleBulkAction}
-        />
-        <DetailPane
-          snapshot={snapshot}
-          onAction={handleAction}
-          onOpenRespond={handleOpenRespond}
-        />
+    <div className="flex h-screen">
+      <NavSidebar
+        activeView={activeView}
+        onChangeView={setActiveView}
+        onTriggerRun={() => setTriggerRunOpen(true)}
+        onHelp={() => setHelpOpen(true)}
+        summary={snapshot.summary}
+      />
+      <div className="flex flex-col flex-1 min-w-0">
+        <Header workers={snapshot.workers} services={snapshot.services} systemStats={snapshot.systemStats} refreshedAt={snapshot.refreshedAt} connectionInfo={connectionInfo} onStopWorker={handleStopWorker} onRestartWorker={handleRestartWorker} onPurgeOffline={handlePurgeOffline} />
+        <DoctorBanner snapshot={snapshot} />
+        <KpiCards summary={snapshot.summary} />
+        <div className="flex flex-1 min-h-0">
+          {activeView === "runs" && snapshot.repositoryCount === 0 && !wizardDismissed ? (
+            <SetupWizard snapshot={snapshot} onComplete={() => { setWizardDismissed(true); refresh(); }} />
+          ) : activeView === "runs" && (
+            <div className="flex flex-col lg:flex-row flex-1 min-w-0">
+              <Sidebar
+                ref={searchRef}
+                inboxRuns={snapshot.inboxRuns}
+                activeRuns={snapshot.activeRuns}
+                recentRuns={snapshot.recentRuns}
+                selectedRunId={selectedRunId}
+                onSelectRun={selectRun}
+                jiraBaseUrl={snapshot.jiraBaseUrl}
+                checkedRunIds={checkedRunIds}
+                onToggleCheck={handleToggleCheck}
+                onCheckAllInbox={handleCheckAllInbox}
+                onBulkAction={handleBulkAction}
+              />
+              <DetailPane
+                snapshot={snapshot}
+                onAction={handleAction}
+                onOpenRespond={handleOpenRespond}
+              />
+            </div>
+          )}
+          {activeView === "repositories" && (
+            <div className="flex-1 overflow-y-auto">
+              <RepositoriesView />
+            </div>
+          )}
+          {activeView === "rules" && (
+            <div className="flex-1 overflow-y-auto">
+              <RulesView />
+            </div>
+          )}
+          {activeView === "settings" && (
+            <div className="flex-1 overflow-y-auto">
+              <SettingsView />
+            </div>
+          )}
+        </div>
       </div>
       <RespondModal
         isOpen={modal !== null}
@@ -284,6 +385,12 @@ export default function App() {
         onConfirm={handleConfirm}
         onCancel={() => setConfirmModal(null)}
       />
-    </>
+      <TriggerRunModal
+        isOpen={triggerRunOpen}
+        onSubmit={handleTriggerRun}
+        onClose={() => setTriggerRunOpen(false)}
+      />
+      {helpOpen && <QuickReferenceOverlay onClose={() => setHelpOpen(false)} />}
+    </div>
   );
 }

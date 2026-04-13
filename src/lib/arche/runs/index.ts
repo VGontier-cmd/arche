@@ -20,8 +20,12 @@ export {
 export {
   listRepositories,
   createRepository,
+  updateRepository,
+  deleteRepository,
   listRepoRules,
   createRepoRule,
+  updateRepoRule,
+  deleteRepoRule,
   getRepositoryById,
   getRepositoryByNameOrId,
 } from "./repositories";
@@ -34,16 +38,17 @@ export {
   transitionRun,
 } from "./run-writer";
 export { appendRunCommand } from "./run-commands";
-export { createRun, retryRun } from "./run-lifecycle";
+export { createRun, retryRun, retryFromExecutor } from "./run-lifecycle";
 export {
   cancelRun,
   approvePlan,
   respondToRun,
+  forceApprove,
   approvePublish,
   rejectPublish,
   archiveRun,
   createMergeRequestForRun,
 } from "./run-approval-actions";
 export { refreshLock, acquireLock, releaseLock } from "./locks";
-export { claimNextRun, refreshLease, sweepExpiredRuns, processRun } from "./worker-ops";
+export { claimNextRun, refreshLease, sweepExpiredRuns, sweepTimedOutHumanInput, processRun } from "./worker-ops";
 export { pruneRunHistory } from "./prune";

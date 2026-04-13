@@ -58,7 +58,6 @@ describe("dashboard read model", () => {
         "  validation_commands: []",
         "workflow:",
         "  mode: plan_execute_review",
-        "  max_review_cycles: 3",
         "  require_plan_approval: true",
         "  require_publish_approval: true",
         "executors:",
@@ -323,12 +322,11 @@ describe("dashboard read model", () => {
       workerCount: 2,
       onlineWorkerCount: 1,
       offlineWorkerCount: 1,
-      totalCostUsd: 0,
-      avgDurationSeconds: null,
     });
     expect(snapshot.credentialEnv).toEqual({
       openRouter: true,
       gitlab: false,
+      github: false,
       jira: false,
     });
     expect(snapshot.services.workerRunning).toBe(true);
@@ -518,6 +516,8 @@ function makeSnapshot(
     refreshedAt: "2026-04-07T09:00:00.000Z",
     offlineThresholdMs: 5_000,
     jiraBaseUrl: null,
+    repositoryCount: expect.any(Number),
+    ruleCount: expect.any(Number),
     systemStats: { ramMb: 256, ramTotalMb: 16384, loadAvg1: 0.5, cpuCount: 8 },
     summary: {
       inboxCount: 2,
@@ -526,17 +526,17 @@ function makeSnapshot(
       workerCount: 1,
       onlineWorkerCount: 1,
       offlineWorkerCount: 0,
-      totalCostUsd: 0,
-      avgDurationSeconds: null,
     },
     services: {
       workerRunning: true,
       serverRunning: true,
+      dockerRunning: expect.any(Boolean),
       serverUrl: "http://127.0.0.1:8787/health",
     },
     credentialEnv: {
       openRouter: true,
       gitlab: true,
+      github: expect.any(Boolean),
       jira: false,
     },
     workers: [

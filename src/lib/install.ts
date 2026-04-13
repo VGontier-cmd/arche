@@ -128,7 +128,6 @@ const defaultInitOrchestratorConfig: Record<string, unknown> = {
   },
   workflow: {
     mode: "plan_execute_review",
-    max_review_cycles: 3,
     require_plan_approval: true,
     require_publish_approval: true,
   },

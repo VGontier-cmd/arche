@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchSnapshot, sseUrl } from "../api/client";
+import { fetchRunDetail, fetchSnapshot } from "../api/client";
 import type { DashboardRun, DashboardSnapshot } from "../types";
 
 export type ConnectionState = "connecting" | "connected" | "disconnected";
+export type ConnectionInfo = { state: ConnectionState; reconnectAttempt: number };
 
 const NOTIFY_STATUSES = new Set([
   "awaiting_plan_approval",
@@ -16,16 +17,37 @@ const NOTIFY_LABELS: Record<string, string> = {
   needs_human_input: "Needs your input",
 };
 
-export function useDashboard() {
+function playNotificationSound() {
+  const muted = localStorage.getItem("arche-mute") === "1";
+  if (muted) return;
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(660, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.3);
+    setTimeout(() => ctx.close(), 500);
+  } catch { /* audio not available */ }
+}
+
+export function useDashboard(initialRunId?: string | null) {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(initialRunId ?? null);
+  const [connectionInfo, setConnectionInfo] = useState<ConnectionInfo>({ state: "connecting", reconnectAttempt: 0 });
 
   const selectedRunIdRef = useRef(selectedRunId);
   selectedRunIdRef.current = selectedRunId;
 
   const prevRunStatusesRef = useRef<Map<string, string> | null>(null);
   const isInitialLoadRef = useRef(true);
+  const reconnectAttemptRef = useRef(0);
 
   // Request notification permission on mount
   useEffect(() => {
@@ -34,9 +56,11 @@ export function useDashboard() {
     }
   }, []);
 
+  // SSE for list data — stable connection, never depends on selectedRunId
   useEffect(() => {
-    setConnectionState("connecting");
-    const es = new EventSource(sseUrl(selectedRunId));
+    reconnectAttemptRef.current = 0;
+    setConnectionInfo({ state: "connecting", reconnectAttempt: 0 });
+    const es = new EventSource("/v1/dashboard/sse");
     let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     es.onmessage = (event) => {
@@ -44,21 +68,59 @@ export function useDashboard() {
         clearTimeout(disconnectTimer);
         disconnectTimer = null;
       }
-      setConnectionState("connected");
-      const data: DashboardSnapshot = JSON.parse(event.data);
-      if (!selectedRunIdRef.current && data.selectedRunId) {
-        setSelectedRunId(data.selectedRunId);
-      }
-      setSnapshot(data);
+      reconnectAttemptRef.current = 0;
+      setConnectionInfo({ state: "connected", reconnectAttempt: 0 });
+      const listData = JSON.parse(event.data);
 
-      // Browser notifications for status transitions
+      // Merge list data from SSE with existing run details from REST
+      setSnapshot((prev) => {
+        if (!prev) {
+          // First load — no run details yet, will be fetched by the detail effect
+          return {
+            ...listData,
+            selectedWorkerId: null,
+            selectedWorker: null,
+            selectedRunId: null,
+            selectedRun: null,
+            currentRun: null,
+            logs: [],
+            events: [],
+            commands: [],
+            messages: [],
+            tasks: [],
+            timeline: [],
+            timelineTotal: 0,
+          } as DashboardSnapshot;
+        }
+        // Keep existing run details, update lists and metadata
+        return {
+          ...prev,
+          ...listData,
+          // Preserve detail fields from REST
+          selectedWorkerId: prev.selectedWorkerId,
+          selectedWorker: prev.selectedWorker,
+          selectedRunId: prev.selectedRunId,
+          selectedRun: prev.selectedRun,
+          currentRun: prev.currentRun,
+          logs: prev.logs,
+          events: prev.events,
+          commands: prev.commands,
+          messages: prev.messages,
+          tasks: prev.tasks,
+          timeline: prev.timeline,
+          timelineTotal: prev.timelineTotal,
+        };
+      });
+
+      // Browser notifications + sound for status transitions
+      const allRuns = [...listData.inboxRuns, ...listData.activeRuns, ...listData.recentRuns];
       if ("Notification" in window && Notification.permission === "granted") {
-        const allRuns = [...data.inboxRuns, ...data.activeRuns, ...data.recentRuns];
-        const currentStatuses = new Map(allRuns.map((r) => [r.id, r.status]));
+        const currentStatuses = new Map(allRuns.map((r: DashboardRun) => [r.id, r.status]));
 
         if (isInitialLoadRef.current) {
           isInitialLoadRef.current = false;
         } else if (prevRunStatusesRef.current) {
+          let notified = false;
           for (const run of allRuns) {
             if (
               NOTIFY_STATUSES.has(run.status) &&
@@ -68,7 +130,11 @@ export function useDashboard() {
                 body: `${run.ticketKey}: ${run.ticketTitle || run.id}`,
                 tag: `arche-${run.id}-${run.status}`,
               });
+              notified = true;
             }
+          }
+          if (notified) {
+            playNotificationSound();
           }
         }
         prevRunStatusesRef.current = currentStatuses;
@@ -76,9 +142,12 @@ export function useDashboard() {
     };
 
     es.onerror = () => {
-      // Give EventSource 3s to auto-reconnect before showing disconnected
+      reconnectAttemptRef.current++;
+      const attempt = reconnectAttemptRef.current;
       if (!disconnectTimer) {
-        disconnectTimer = setTimeout(() => setConnectionState("disconnected"), 3000);
+        disconnectTimer = setTimeout(() => {
+          setConnectionInfo({ state: "disconnected", reconnectAttempt: attempt });
+        }, 3000);
       }
     };
 
@@ -86,16 +155,84 @@ export function useDashboard() {
       if (disconnectTimer) clearTimeout(disconnectTimer);
       es.close();
     };
+  }, []); // Stable — no dependency on selectedRunId
+
+  // Fetch run details when selectedRunId changes, then poll every 3s
+  useEffect(() => {
+    if (!selectedRunId) {
+      setSnapshot((prev) =>
+        prev
+          ? {
+              ...prev,
+              selectedWorkerId: null,
+              selectedWorker: null,
+              selectedRunId: null,
+              selectedRun: null,
+              currentRun: null,
+              logs: [],
+              events: [],
+              commands: [],
+              messages: [],
+              tasks: [],
+              timeline: [],
+              timelineTotal: 0,
+            }
+          : prev,
+      );
+      return;
+    }
+
+    let cancelled = false;
+    let fetching = false;
+
+    const fetchDetails = async () => {
+      if (fetching) return; // prevent overlapping fetches
+      fetching = true;
+      try {
+        const detail = await fetchRunDetail(selectedRunId);
+        if (cancelled) return;
+        setSnapshot((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            selectedWorkerId: null,
+            selectedWorker: null,
+            selectedRunId: detail.selectedRunId,
+            selectedRun: detail.selectedRun,
+            currentRun: detail.currentRun,
+            logs: detail.logs,
+            events: detail.events,
+            commands: detail.commands,
+            messages: detail.messages,
+            tasks: detail.tasks,
+            timeline: detail.timeline,
+            timelineTotal: detail.timelineTotal,
+          };
+        });
+      } catch (e) {
+        console.error("detail fetch failed", e);
+      } finally {
+        fetching = false;
+      }
+    };
+
+    fetchDetails();
+    const pollTimer = setInterval(fetchDetails, 3_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(pollTimer);
+    };
   }, [selectedRunId]);
 
   const refresh = useCallback(async () => {
     try {
-      const data = await fetchSnapshot(selectedRunId);
+      const data = await fetchSnapshot(selectedRunIdRef.current);
       setSnapshot(data);
     } catch (e) {
       console.error("refresh failed", e);
     }
-  }, [selectedRunId]);
+  }, []);
 
   const selectRun = useCallback((id: string | null) => {
     setSelectedRunId(id);
@@ -125,5 +262,5 @@ export function useDashboard() {
     [],
   );
 
-  return { snapshot, selectedRunId, selectRun, refresh, connectionState, applyOptimisticUpdate };
+  return { snapshot, selectedRunId, selectRun, refresh, connectionInfo, applyOptimisticUpdate };
 }

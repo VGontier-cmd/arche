@@ -140,6 +140,36 @@ export async function sweepExpiredRuns() {
   return expired.length;
 }
 
+export async function sweepTimedOutHumanInput(timeoutHours: number) {
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - timeoutHours * 3_600_000);
+  const timedOut = await db
+    .select()
+    .from(runs)
+    .where(
+      and(
+        eq(runs.status, "needs_human_input"),
+        lt(runs.updatedAt, cutoff),
+      ),
+    );
+
+  for (const run of timedOut) {
+    await withSqliteWriteRetry(() => db
+      .update(runs)
+      .set({
+        status: "cancelled",
+        failureReason: `Human input timeout exceeded (${timeoutHours}h)`,
+        finishedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(runs.id, run.id)));
+    await appendRunEvent(run.id, "run.cancelled", { reason: "Human input timeout exceeded" });
+    await appendRunLog(run.id, "stderr", `cancelled: human input timeout exceeded (${timeoutHours}h)`);
+  }
+
+  return timedOut.length;
+}
+
 export async function processRun(runId: string, workerId: string) {
   return processRunWithDeps(runId, workerId, {
     setWorkerPhase,

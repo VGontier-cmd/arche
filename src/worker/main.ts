@@ -4,7 +4,7 @@ import { ensureArcheReady } from "../lib/bootstrap";
 import { getConfig } from "../lib/config";
 import { checkpointWal, database, optimizeDatabase } from "../lib/db/client";
 import { createLogger, errorDetails } from "../lib/arche/logging";
-import { claimNextRun, processRun, pruneRunHistory, sweepExpiredRuns } from "../lib/arche/runs";
+import { claimNextRun, processRun, pruneRunHistory, sweepExpiredRuns, sweepTimedOutHumanInput } from "../lib/arche/runs";
 import { sleep } from "../lib/arche/utils";
 import {
   buildWorkerId,
@@ -192,6 +192,13 @@ export async function startWorker() {
         logger.warn("worker_loop", "expired runs marked as failed", {
           event: "worker.expired_runs_failed",
           details: { count: expired },
+        });
+      }
+      const timedOut = await sweepTimedOutHumanInput(config.worker.human_input_timeout_hours);
+      if (timedOut > 0) {
+        logger.warn("worker_loop", "human input timed out runs cancelled", {
+          event: "worker.human_input_timeout",
+          details: { count: timedOut },
         });
       }
       const pruned = await pruneRunHistory();

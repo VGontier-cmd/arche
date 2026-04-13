@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db, withSqliteWriteRetry } from "../../db/client";
 import { runs } from "../../db/schema";
 import { ExternalServiceError } from "../errors";
+import { GitHubClient } from "../github";
 import { GitLabClient } from "../gitlab";
 import { JiraClient } from "../jira";
 import type { JiraIssue } from "../types";
@@ -90,6 +91,30 @@ export async function respondToRun(runId: string, message: string) {
   return updated;
 }
 
+export async function forceApprove(runId: string) {
+  const run = await getRunById(runId);
+  if (run.status !== "needs_human_input") {
+    throw new ExternalServiceError(`Run ${runId} is not in needs_human_input state`);
+  }
+  const [updated] = await withSqliteWriteRetry(() =>
+    db
+      .update(runs)
+      .set({
+        status: "awaiting_publish_approval",
+        currentRole: "reviewer",
+        pendingQuestion: null,
+        worktreeRetained: true,
+        latestReviewSummary: "Force-approved by human — review skipped.",
+        updatedAt: new Date(),
+      })
+      .where(eq(runs.id, runId))
+      .returning(),
+  );
+  await appendRunEvent(runId, "run.force_approved");
+  await appendSystemRunLog(runId, "force-approved by human; skipping reviewer, waiting for publish approval");
+  return updated;
+}
+
 export async function approvePublish(runId: string) {
   const run = await getRunById(runId);
   if (run.status !== "awaiting_publish_approval") {
@@ -164,11 +189,6 @@ export async function createMergeRequestForRun(runId: string) {
   }
 
   const repository = await getRepositoryById(run.repositoryId);
-  const gitlab = new GitLabClient();
-
-  if (!gitlab.configured) {
-    throw new ExternalServiceError("GitLab client is not configured");
-  }
 
   const issue: JiraIssue = {
     key: run.ticketKey,
@@ -182,12 +202,25 @@ export async function createMergeRequestForRun(runId: string) {
     raw: {},
   };
 
-  const mrUrl = await gitlab.createMergeRequest(
-    repository,
-    run.branchName,
-    issue,
-    run.summary ?? run.latestReviewSummary ?? "Automated change ready for review.",
-  );
+  const description = run.summary ?? run.latestReviewSummary ?? "Automated change ready for review.";
+  let mrUrl: string;
+  let eventName: string;
+
+  if (repository.gitProvider === "github") {
+    const github = new GitHubClient();
+    if (!github.configured) {
+      throw new ExternalServiceError("GitHub client is not configured (USER_GITHUB_TOKEN)");
+    }
+    mrUrl = await github.createPullRequest(repository, run.branchName, issue, description);
+    eventName = "github.pull_request_created";
+  } else {
+    const gitlab = new GitLabClient();
+    if (!gitlab.configured) {
+      throw new ExternalServiceError("GitLab client is not configured");
+    }
+    mrUrl = await gitlab.createMergeRequest(repository, run.branchName, issue, description);
+    eventName = "gitlab.merge_request_created";
+  }
 
   const [updated] = await withSqliteWriteRetry(() =>
     db
@@ -202,14 +235,14 @@ export async function createMergeRequestForRun(runId: string) {
       .returning(),
   );
 
-  await appendRunEvent(runId, "gitlab.merge_request_created", {
+  await appendRunEvent(runId, eventName, {
     mrUrl,
     branchName: run.branchName,
   });
 
   const jira = new JiraClient();
-  await jira.commentIssue(issue.key, `MR created: ${mrUrl}`).catch(() => undefined);
+  await jira.commentIssue(issue.key, `PR/MR created: ${mrUrl}`).catch(() => undefined);
 
-  await appendSystemRunLog(runId, `merge request created ${mrUrl}`);
+  await appendSystemRunLog(runId, `pull/merge request created ${mrUrl}`);
   return updated;
 }

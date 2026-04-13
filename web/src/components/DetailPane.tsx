@@ -5,6 +5,7 @@ import { DetailActions } from "./DetailActions";
 import { DetailPlan } from "./DetailPlan";
 import { DiffViewer } from "./DiffViewer";
 import { DetailPendingQuestion } from "./DetailPendingQuestion";
+import { LiveLogs } from "./LiveLogs";
 import { TasksList } from "./TasksList";
 import { Timeline } from "./Timeline";
 
@@ -21,9 +22,11 @@ export function DetailPane({
 
   if (!run) {
     return (
-      <div className="flex-1 overflow-y-auto px-5 py-4">
-        <div className="text-[var(--fg3)] p-5 text-center">
-          Select a run to view details
+      <div className="flex-1 overflow-y-auto px-5 py-4 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-3xl mb-3 opacity-30">{"\u25B6"}</div>
+          <p className="text-xs text-[var(--fg3)]">Select a run to view details</p>
+          <p className="text-[10px] text-[var(--fg3)] mt-1 opacity-60">Use j/k or arrow keys to navigate</p>
         </div>
       </div>
     );
@@ -42,6 +45,7 @@ export function DetailPane({
         onAction={onAction}
         onOpenRespond={onOpenRespond}
         gitlabConfigured={snapshot.credentialEnv.gitlab}
+        githubConfigured={snapshot.credentialEnv.github}
       />
       {run.mrUrl && (
         <div className="mb-5">
@@ -58,6 +62,7 @@ export function DetailPane({
       <DetailPlan planMarkdown={run.planMarkdown} />
       <DiffViewer diffExcerpt={run.diffExcerpt} />
       <DetailPendingQuestion pendingQuestion={run.pendingQuestion} />
+      <LiveLogs runId={run.id} runStatus={run.status} />
       <TasksList tasks={snapshot.tasks} />
       <Timeline timeline={snapshot.timeline} timelineTotal={snapshot.timelineTotal} runId={snapshot.selectedRunId} />
     </div>

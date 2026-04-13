@@ -202,6 +202,88 @@ export async function assignRunToWorker(runId: string, workerId: string) {
   );
 }
 
+export async function stopWorker(workerId: string): Promise<{ success: boolean; message: string }> {
+  const worker = await getWorkerById(workerId);
+  try {
+    process.kill(worker.pid, "SIGTERM");
+    return { success: true, message: `SIGTERM sent to worker ${workerId} (PID ${worker.pid})` };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ESRCH") {
+      await deregisterWorker(workerId);
+      return { success: true, message: `Worker ${workerId} was already dead; deregistered` };
+    }
+    throw err;
+  }
+}
+
+export async function purgeOfflineWorkers(): Promise<{ purged: string[] }> {
+  const allWorkers = await db.select().from(workers);
+  const purged: string[] = [];
+  for (const w of allWorkers) {
+    let alive = true;
+    try {
+      process.kill(w.pid, 0); // signal 0 = check if process exists
+    } catch {
+      alive = false;
+    }
+    if (!alive) {
+      await deregisterWorker(w.id);
+      purged.push(w.id);
+    }
+  }
+  return { purged };
+}
+
+export async function restartWorker(workerId: string): Promise<{
+  success: boolean;
+  message: string;
+  oldPid: number;
+  newPid: number | null;
+}> {
+  const worker = await getWorkerById(workerId);
+  const oldPid = worker.pid;
+
+  try {
+    process.kill(oldPid, "SIGTERM");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ESRCH") throw err;
+  }
+
+  // Wait for the old worker to deregister (up to 5s)
+  for (let i = 0; i < 10; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const existing = await db.select().from(workers).where(eq(workers.id, workerId)).limit(1);
+    if (!existing[0]) break;
+  }
+
+  const { fork } = await import("node:child_process");
+  const { existsSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { archePackageRootDir } = await import("../cli-helpers");
+
+  const root = archePackageRootDir();
+  const distWorker = join(root, "dist", "worker", "main.js");
+  const isBundled = existsSync(distWorker);
+  const workerPath = isBundled ? distWorker : join(root, "src", "bin", "worker.ts");
+
+  const child = fork(workerPath, [], {
+    stdio: "inherit",
+    env: process.env,
+    execArgv: isBundled ? [] : ["--import", "tsx"],
+    detached: false,
+  });
+
+  const newPid = child.pid ?? null;
+  child.unref();
+
+  return {
+    success: true,
+    message: `Worker restarted (old PID: ${oldPid}, new PID: ${newPid})`,
+    oldPid,
+    newPid,
+  };
+}
+
 export function makeWorkerMetadata(input: {
   pollIntervalSeconds: number;
   maxAgentSteps: number;

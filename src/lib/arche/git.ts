@@ -430,7 +430,9 @@ export class GitManager {
   }
 
   async diffExcerpt(worktreePath: string) {
-    const result = await runCommand("git", ["-C", worktreePath, "diff", "--stat", "--patch"]);
+    // Stage intent-to-add for untracked files so they appear in diff
+    await runCommand("git", ["-C", worktreePath, "add", "-N", "."]);
+    const result = await runCommand("git", ["-C", worktreePath, "diff", "HEAD", "--stat", "--patch"]);
     if (result.returncode !== 0) {
       throw new ExternalServiceError(result.stderr || "Git diff failed");
     }
@@ -438,7 +440,8 @@ export class GitManager {
   }
 
   async diffStats(worktreePath: string) {
-    const result = await runCommand("git", ["-C", worktreePath, "diff", "--numstat"]);
+    await runCommand("git", ["-C", worktreePath, "add", "-N", "."]);
+    const result = await runCommand("git", ["-C", worktreePath, "diff", "HEAD", "--numstat"]);
     if (result.returncode !== 0) {
       throw new ExternalServiceError(result.stderr || "Diff stats failed");
     }

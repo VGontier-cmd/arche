@@ -64,21 +64,12 @@ type ExecutorPhaseResult =
   | {
       done: false;
       run: RunRow;
-      pendingFindings: ReviewFinding[];
       diffExcerpt: string;
     };
 
-type ReviewerPhaseResult =
-  | {
-      done: true;
-      run: RunRow;
-    }
-  | {
-      done: false;
-      run: RunRow;
-      currentCycle: number;
-      pendingFindings: ReviewFinding[];
-    };
+type ReviewerPhaseResult = {
+  run: RunRow;
+};
 
 type WorkerPhaseInput = {
   status: WorkerStatus;
@@ -153,7 +144,11 @@ export type RunProcessDeps = {
   buildRunArtifactsPath: (logsDir: string, runId: string) => string;
 };
 
-function createWorkflowHooks(deps: RunProcessDeps): WorkflowHooks {
+function createWorkflowHooks(
+  runId: string,
+  workerId: string,
+  deps: RunProcessDeps,
+): WorkflowHooks {
   return {
     setWorkerPhase: deps.setWorkerPhase,
     appendRunEvent: deps.appendRunEvent,
@@ -162,7 +157,11 @@ function createWorkflowHooks(deps: RunProcessDeps): WorkflowHooks {
     createTask: deps.createRunTask,
     completeTask: deps.completeRunTask,
     recordRunCommand: deps.recordRunCommand,
-    ensureNotCancelled: (runId: string) => ensureNotCancelled(runId, deps),
+    ensureNotCancelled: (id: string) => ensureNotCancelled(id, deps),
+    runValidation: async (sandboxId: string) => {
+      const freshRun = await deps.getRunById(runId);
+      return runValidationSuite(freshRun, sandboxId, workerId, deps);
+    },
   };
 }
 
@@ -749,18 +748,24 @@ async function runExecutorPhase(input: {
     executorResult.output.summary,
   );
 
-  const validation = await runValidationSuite(
-    await input.deps.getRunById(input.runId),
-    input.sandboxId,
-    input.workerId,
-    input.deps,
+  // Validation already ran inside the executor loop (validation-gated finish).
+  // Just fetch the current diff for the reviewer.
+  const git = new GitManager(input.services.config);
+  const diffExcerpt = input.worktreePath
+    ? await git.diffExcerpt(input.worktreePath)
+    : "";
+
+  await withSqliteWriteRetry(() =>
+    db
+      .update(runs)
+      .set({ diffExcerpt, updatedAt: new Date() })
+      .where(eq(runs.id, input.runId)),
   );
 
   return {
     done: false,
     run: await input.deps.getRunById(input.runId),
-    pendingFindings: validation.findings,
-    diffExcerpt: validation.diffExcerpt,
+    diffExcerpt,
   };
 }
 
@@ -840,22 +845,6 @@ async function runReviewerPhase(input: {
     reviewerOutput.summary,
   );
 
-  if (reviewerOutput.decision === "needs_human_input") {
-    await markRunNeedsHumanInput(
-      {
-        runId: input.runId,
-        role: "reviewer",
-        question: reviewerOutput.question ?? "Reviewer requires clarification.",
-        findings: combinedFindings,
-      },
-      input.deps,
-    );
-    return {
-      done: true,
-      run: await input.deps.getRunById(input.runId),
-    };
-  }
-
   if (reviewerOutput.decision === "approve") {
     await withSqliteWriteRetry(() =>
       db
@@ -875,48 +864,28 @@ async function runReviewerPhase(input: {
       input.runId,
       "review approved; waiting for publish approval",
     );
-    return {
-      done: true,
-      run: await input.deps.getRunById(input.runId),
-    };
+    return { run: await input.deps.getRunById(input.runId) };
   }
 
-  if (input.currentCycle >= input.services.config.workflow.max_review_cycles) {
-    await markRunNeedsHumanInput(
-      {
-        runId: input.runId,
-        role: "reviewer",
-        question:
-          "Automatic review budget exhausted. Please inspect the retained worktree and findings.",
-        findings: combinedFindings,
-      },
-      input.deps,
-    );
-    return {
-      done: true,
-      run: await input.deps.getRunById(input.runId),
-    };
-  }
+  // request_changes or needs_human_input — always route to human.
+  // For request_changes, set currentRole to "executor" so that when the human
+  // responds, the next worker pickup resumes from the executor with the findings.
+  const nextRole = reviewerOutput.decision === "needs_human_input" ? "reviewer" : "executor";
+  const question =
+    reviewerOutput.decision === "needs_human_input"
+      ? (reviewerOutput.question ?? "Reviewer requires clarification.")
+      : "Reviewer requested changes. Please review the findings and respond to resume execution.";
 
-  const nextCycle = input.currentCycle + 1;
-  await withSqliteWriteRetry(() =>
-    db
-      .update(runs)
-      .set({
-        currentRole: "executor",
-        currentCycle: nextCycle,
-        latestFindings: combinedFindings,
-        updatedAt: new Date(),
-      })
-      .where(eq(runs.id, input.runId)),
+  await markRunNeedsHumanInput(
+    {
+      runId: input.runId,
+      role: nextRole,
+      question,
+      findings: combinedFindings,
+    },
+    input.deps,
   );
-
-  return {
-    done: false,
-    run: await input.deps.getRunById(input.runId),
-    currentCycle: nextCycle,
-    pendingFindings: combinedFindings,
-  };
+  return { run: await input.deps.getRunById(input.runId) };
 }
 
 async function handleRunProcessingFailure(input: {
@@ -1111,7 +1080,7 @@ export async function processRunWithDeps(
   const gitlab = new GitLabClient();
   const git = new GitManager(config);
   const sandbox = new SandboxManager(config);
-  const workflowHooks = createWorkflowHooks(deps);
+  const workflowHooks = createWorkflowHooks(runId, workerId, deps);
   const now = new Date();
 
   let run = await deps.getRunById(runId);
@@ -1186,6 +1155,11 @@ export async function processRunWithDeps(
 
         let currentRole = (run.currentRole ?? "planner") as RunTaskRole;
         let currentCycle = Math.max(run.currentCycle ?? 0, currentRole === "planner" ? 0 : 1);
+        // If re-entering executor after reviewer request_changes (latestReviewSummary is set),
+        // bump the cycle so tasks and LLM invocations are correctly attributed to cycle N+1.
+        if (currentRole === "executor" && run.latestReviewSummary !== null) {
+          currentCycle = (run.currentCycle ?? 0) + 1;
+        }
 
         if (currentRole === "planner") {
           return runPlannerPhase({
@@ -1216,46 +1190,13 @@ export async function processRunWithDeps(
           openQuestions: run.planOpenQuestions,
           needsHumanInput: false,
         };
-        let pendingFindings = Array.isArray(run.latestFindings) ? run.latestFindings : [];
+        const pendingFindings = Array.isArray(run.latestFindings) ? run.latestFindings : [];
         let diffExcerpt = run.diffExcerpt ?? "";
 
-        while (true) {
-          await deps.refreshLease(runId, workerId, config.worker.lease_ttl_seconds);
+        await deps.refreshLease(runId, workerId, config.worker.lease_ttl_seconds);
 
-          if (currentRole === "executor") {
-            const executorPhase = await runExecutorPhase({
-              runId,
-              workerId,
-              run,
-              issue,
-              repository: resolvedRepository,
-              plan,
-              currentCycle,
-              pendingFindings,
-              worktreePath: worktree.worktreePath,
-              sandboxId: sandboxReady.sandboxId,
-              services: {
-                config,
-                jira,
-                gitlab,
-                git,
-                sandbox,
-                workflowHooks,
-              },
-              deps,
-            });
-
-            if (executorPhase.done) {
-              return executorPhase.run;
-            }
-
-            pendingFindings = executorPhase.pendingFindings;
-            diffExcerpt = executorPhase.diffExcerpt;
-            run = executorPhase.run;
-            currentRole = "reviewer";
-            continue;
-          }
-
+        // Re-entry from reviewer needs_human_input (genuine reviewer question)
+        if (currentRole === "reviewer") {
           const reviewerPhase = await runReviewerPhase({
             runId,
             workerId,
@@ -1276,16 +1217,59 @@ export async function processRunWithDeps(
             },
             deps,
           });
-
-          if (reviewerPhase.done) {
-            return reviewerPhase.run;
-          }
-
-          currentCycle = reviewerPhase.currentCycle;
-          pendingFindings = reviewerPhase.pendingFindings;
-          run = reviewerPhase.run;
-          currentRole = "executor";
+          return reviewerPhase.run;
         }
+
+        // Executor path (nominal + post-reviewer request_changes with human response)
+        const executorPhase = await runExecutorPhase({
+          runId,
+          workerId,
+          run,
+          issue,
+          repository: resolvedRepository,
+          plan,
+          currentCycle,
+          pendingFindings,
+          worktreePath: worktree.worktreePath,
+          sandboxId: sandboxReady.sandboxId,
+          services: {
+            config,
+            jira,
+            gitlab,
+            git,
+            sandbox,
+            workflowHooks,
+          },
+          deps,
+        });
+
+        if (executorPhase.done) {
+          return executorPhase.run;
+        }
+
+        diffExcerpt = executorPhase.diffExcerpt;
+
+        const reviewerPhase = await runReviewerPhase({
+          runId,
+          workerId,
+          run: executorPhase.run,
+          issue,
+          repository: resolvedRepository,
+          plan,
+          diffExcerpt,
+          pendingFindings: [], // validation passed before finish — no pending findings
+          currentCycle,
+          services: {
+            config,
+            jira,
+            gitlab,
+            git,
+            sandbox,
+            workflowHooks,
+          },
+          deps,
+        });
+        return reviewerPhase.run;
       },
     );
   } catch (error) {

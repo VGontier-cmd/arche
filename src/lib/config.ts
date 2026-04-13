@@ -1,5 +1,6 @@
-import { readFile } from "node:fs/promises";
-import { parse } from "yaml";
+import { readFile, writeFile, rename } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { parse, stringify } from "yaml";
 import { z } from "zod";
 
 import { env } from "./env";
@@ -32,7 +33,6 @@ const defaultSandboxConfig = {
 
 const defaultWorkflowConfig = {
   mode: "plan_execute_review",
-  max_review_cycles: 3,
   require_plan_approval: true,
   require_publish_approval: true,
 } as const;
@@ -51,7 +51,7 @@ const defaultExecutorProfile = {
   model: "openai/gpt-5.4-mini",
   api_key_env: "USER_OPENROUTER_API_KEY",
   timeout_seconds: 60,
-  max_actions: 8,
+  max_actions: 20,
   temperature: 0.1,
 } as const;
 
@@ -100,7 +100,7 @@ const executorsConfigSchema = z
     }
   });
 
-const orchestratorConfigSchema = z.object({
+export const orchestratorConfigSchema = z.object({
   runtime: z.object({
     root_dir: z.string().default(defaultRuntimeConfig.root_dir),
     repos_dir: z.string().default(defaultRuntimeConfig.repos_dir),
@@ -123,6 +123,7 @@ const orchestratorConfigSchema = z.object({
     lease_ttl_seconds: z.number().int().positive().default(900),
     max_agent_steps: z.number().int().positive().default(8),
     max_run_seconds: z.number().int().positive().default(1200),
+    human_input_timeout_hours: z.number().positive().default(24),
   }),
   policy: z.object({
     assignee: z.string().default("agent-dev"),
@@ -164,7 +165,6 @@ const orchestratorConfigSchema = z.object({
   workflow: z
     .object({
       mode: z.literal("plan_execute_review").default(defaultWorkflowConfig.mode),
-      max_review_cycles: z.number().int().positive().default(defaultWorkflowConfig.max_review_cycles),
       require_plan_approval: z.boolean().default(defaultWorkflowConfig.require_plan_approval),
       require_publish_approval: z.boolean().default(defaultWorkflowConfig.require_publish_approval),
     })
@@ -187,6 +187,7 @@ export const defaultConfig: OrchestratorConfig = {
     lease_ttl_seconds: 900,
     max_agent_steps: 8,
     max_run_seconds: 1200,
+    human_input_timeout_hours: 24,
   },
   policy: {
     assignee: "agent-dev",
@@ -251,6 +252,44 @@ export async function getConfig(): Promise<OrchestratorConfig> {
     startConfigWatcher();
   }
   return configPromise;
+}
+
+export async function saveConfig(
+  patch: Record<string, unknown>,
+): Promise<OrchestratorConfig> {
+  const current = await getConfig();
+
+  // Shallow-merge each section, deep-merge executors.profiles
+  const merged: Record<string, unknown> = { ...current };
+  const editableKeys = ["worker", "policy", "sandbox", "defaults", "routing", "git", "workflow", "executors"] as const;
+  for (const key of editableKeys) {
+    if (!(key in patch)) continue;
+    const patchSection = patch[key] as Record<string, unknown> | undefined;
+    if (!patchSection) continue;
+
+    if (key === "executors") {
+      const currentExec = current.executors;
+      merged.executors = {
+        defaults: { ...currentExec.defaults, ...(patchSection.defaults as Record<string, unknown> | undefined) },
+        profiles: { ...currentExec.profiles, ...(patchSection.profiles as Record<string, unknown> | undefined) },
+      };
+    } else {
+      merged[key] = {
+        ...(current[key] as Record<string, unknown>),
+        ...patchSection,
+      };
+    }
+  }
+
+  const validated = orchestratorConfigSchema.parse(merged);
+
+  // Atomic write: temp file then rename
+  const configPath = env.ARCHE_CONFIG_PATH;
+  const tmpPath = join(dirname(configPath), `.orchestrator.yml.tmp.${Date.now()}`);
+  await writeFile(tmpPath, stringify(validated), "utf8");
+  await rename(tmpPath, configPath);
+
+  return validated;
 }
 
 let watcherStarted = false;

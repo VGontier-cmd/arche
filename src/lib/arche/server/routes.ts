@@ -7,26 +7,34 @@ import type { FastifyInstance } from "fastify";
 
 import { archePackageRootDir } from "../../cli-helpers";
 import { ensureArcheReady } from "../../bootstrap";
+import { getConfig, saveConfig } from "../../config";
 import { db } from "../../db/client";
 import { workers } from "../../db/schema";
 import {
+  configUpdateSchema,
   jiraWebhookSchema,
   manualRunRequestSchema,
   repoRuleCreateSchema,
+  repoRuleUpdateSchema,
   repositoryCreateSchema,
+  repositoryUpdateSchema,
   runHumanResponseSchema,
 } from "../contracts";
+import { stopWorker, restartWorker, purgeOfflineWorkers } from "../workers";
 import { dashboardEvents } from "../dashboard/events";
-import { getDashboardSnapshot, getRunTimeline } from "../dashboard/snapshot";
+import { getDashboardSnapshot, getDashboardListSnapshot, getRunDetailSnapshot, getRunTimeline } from "../dashboard/snapshot";
 import { createLogger } from "../logging";
 import {
   approvePlan,
   approvePublish,
   archiveRun,
   cancelRun,
+  forceApprove,
   createManualRunForTicket,
   createRepoRule,
   createRepository,
+  deleteRepoRule,
+  deleteRepository,
   getRunDetail,
   handleJiraWebhook,
   listExecutionProfiles,
@@ -41,6 +49,9 @@ import {
   rejectPublish,
   respondToRun,
   retryRun,
+  retryFromExecutor,
+  updateRepoRule,
+  updateRepository,
 } from "../runs";
 import type { PaginationQuery } from "./request-context";
 import { parsePaginationQuery, readHeaderValue } from "./request-context";
@@ -135,11 +146,23 @@ export function registerServerRoutes(app: FastifyInstance) {
     },
   );
 
+  // Lightweight run detail endpoint (no system probes)
+  app.get<{ Params: { runId: string } }>(
+    "/v1/dashboard/run-detail/:runId",
+    async (request, reply) => {
+      await ensureArcheReady();
+      const detail = await getRunDetailSnapshot(request.params.runId);
+      if (!detail) {
+        reply.code(404);
+        return { error: "Run not found" };
+      }
+      return detail;
+    },
+  );
+
   // === Dashboard SSE ===
   app.get("/v1/dashboard/sse", async (request, reply) => {
     await ensureArcheReady();
-    const query = request.query as { runId?: string };
-    const selectedRunId = query.runId ?? null;
 
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -147,28 +170,80 @@ export function registerServerRoutes(app: FastifyInstance) {
       Connection: "keep-alive",
     });
 
-    const initial = await getDashboardSnapshot({ selectedRunId });
-    reply.raw.write(`data: ${JSON.stringify(initial)}\n\n`);
+    // Use light snapshot (lists + metadata only, no run details) for smaller payload
+    const initial = await getDashboardListSnapshot();
+    const initialJson = JSON.stringify(initial);
+    reply.raw.write(`data: ${initialJson}\n\n`);
+    let lastJson = initialJson;
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+    const sendIfChanged = async () => {
+      try {
+        const snap = await getDashboardListSnapshot();
+        const json = JSON.stringify(snap);
+        if (json !== lastJson) {
+          lastJson = json;
+          reply.raw.write(`data: ${json}\n\n`);
+        }
+      } catch {
+        // Client disconnected or error — listener will be cleaned up
+      }
+    };
+
     const onChange = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(async () => {
-        try {
-          const snap = await getDashboardSnapshot({ selectedRunId });
-          reply.raw.write(`data: ${JSON.stringify(snap)}\n\n`);
-        } catch {
-          // Client disconnected or error — listener will be cleaned up
-        }
-      }, 300);
+      debounceTimer = setTimeout(sendIfChanged, 300);
     };
 
     dashboardEvents.on("changed", onChange);
 
+    // Poll DB every 5s to catch cross-process changes (workers run in separate processes)
+    const pollTimer = setInterval(sendIfChanged, 5_000);
+
     request.raw.on("close", () => {
       dashboardEvents.off("changed", onChange);
       if (debounceTimer) clearTimeout(debounceTimer);
+      clearInterval(pollTimer);
+    });
+
+    await reply.hijack();
+  });
+
+  // === Live Logs SSE ===
+  app.get<{ Params: { id: string } }>("/v1/runs/:id/logs/stream", async (request, reply) => {
+    await ensureArcheReady();
+    const runId = request.params.id;
+
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+
+    let lastId = 0;
+    let closed = false;
+
+    const sendLogs = async () => {
+      try {
+        const page = await listRunLogsPage(runId, { afterId: lastId || undefined, limit: 200 });
+        for (const log of page.items) {
+          if (closed) return;
+          reply.raw.write(`data: ${JSON.stringify(log)}\n\n`);
+          if (typeof log.id === "number" && log.id > lastId) lastId = log.id;
+        }
+      } catch {
+        // run not found or client disconnected
+      }
+    };
+
+    await sendLogs();
+
+    const pollTimer = setInterval(sendLogs, 2_000);
+
+    request.raw.on("close", () => {
+      closed = true;
+      clearInterval(pollTimer);
     });
 
     await reply.hijack();
@@ -237,6 +312,11 @@ export function registerServerRoutes(app: FastifyInstance) {
     return retryRun(request.params.id);
   });
 
+  app.post<{ Params: { id: string } }>("/v1/runs/:id/retry-executor", async (request) => {
+    await ensureArcheReady();
+    return retryFromExecutor(request.params.id);
+  });
+
   app.post<{ Params: { id: string } }>("/v1/runs/:id/cancel", async (request) => {
     await ensureArcheReady();
     return cancelRun(request.params.id);
@@ -255,6 +335,14 @@ export function registerServerRoutes(app: FastifyInstance) {
     async (request) => {
       await ensureArcheReady();
       return approvePublish(request.params.id);
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    "/v1/runs/:id/force-approve",
+    async (request) => {
+      await ensureArcheReady();
+      return forceApprove(request.params.id);
     },
   );
 
@@ -317,6 +405,17 @@ export function registerServerRoutes(app: FastifyInstance) {
     return repository;
   });
 
+  app.put<{ Params: { id: string } }>("/v1/repositories/:id", async (request) => {
+    await ensureArcheReady();
+    const body = repositoryUpdateSchema.parse(request.body ?? {});
+    return updateRepository(request.params.id, body);
+  });
+
+  app.delete<{ Params: { id: string } }>("/v1/repositories/:id", async (request) => {
+    await ensureArcheReady();
+    return deleteRepository(request.params.id);
+  });
+
   // === Repo Rules ===
   app.get("/v1/repo-rules", async () => {
     await ensureArcheReady();
@@ -340,11 +439,60 @@ export function registerServerRoutes(app: FastifyInstance) {
     return rule;
   });
 
+  app.put<{ Params: { id: string } }>("/v1/repo-rules/:id", async (request) => {
+    await ensureArcheReady();
+    const body = repoRuleUpdateSchema.parse(request.body ?? {});
+    return updateRepoRule(request.params.id, body);
+  });
+
+  app.delete<{ Params: { id: string } }>("/v1/repo-rules/:id", async (request) => {
+    await ensureArcheReady();
+    return deleteRepoRule(request.params.id);
+  });
+
   // === Profiles ===
   app.get("/v1/profiles", async () => {
     await ensureArcheReady();
     return listExecutionProfiles();
   });
+
+  // === Config ===
+  app.get("/v1/config", async () => {
+    await ensureArcheReady();
+    const config = await getConfig();
+    const { runtime: _runtime, bootstrap: _bootstrap, defaults, ...rest } = config;
+    return { ...rest, defaults };
+  });
+
+  app.put("/v1/config", async (request) => {
+    await ensureArcheReady();
+    const body = configUpdateSchema.parse(request.body ?? {});
+    const updated = await saveConfig(body);
+    const { runtime: _runtime, bootstrap: _bootstrap, defaults, ...rest } = updated;
+    return { ...rest, defaults };
+  });
+
+  // === Workers ===
+  app.post("/v1/workers/purge-offline", async () => {
+    await ensureArcheReady();
+    return purgeOfflineWorkers();
+  });
+
+  app.post<{ Params: { workerId: string } }>(
+    "/v1/workers/:workerId/stop",
+    async (request) => {
+      await ensureArcheReady();
+      return stopWorker(request.params.workerId);
+    },
+  );
+
+  app.post<{ Params: { workerId: string } }>(
+    "/v1/workers/:workerId/restart",
+    async (request) => {
+      await ensureArcheReady();
+      return restartWorker(request.params.workerId);
+    },
+  );
 
   // === Webhooks ===
   app.post("/v1/webhooks/jira", async (request, reply) => {

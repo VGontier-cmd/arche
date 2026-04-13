@@ -1,6 +1,9 @@
+import { eq } from "drizzle-orm";
+
 import { getConfig } from "../../config";
 import { db, withSqliteWriteRetry } from "../../db/client";
 import { runs, type RepositoryRow } from "../../db/schema";
+import { ExternalServiceError } from "../errors";
 import { normalizeIssue } from "../jira";
 import { resolveExecutionProfile } from "../profiles";
 import type { JiraIssue } from "../types";
@@ -77,3 +80,31 @@ export async function retryRun(runId: string) {
   });
   return retriedRun;
 }
+
+export async function retryFromExecutor(runId: string) {
+  const run = await getRunById(runId);
+  if (run.status !== "failed") {
+    throw new ExternalServiceError(`Run ${runId} is not in failed state`);
+  }
+  if (!run.planMarkdown) {
+    throw new ExternalServiceError(`Run ${runId} has no plan to re-execute from`);
+  }
+  const [updated] = await withSqliteWriteRetry(() =>
+    db
+      .update(runs)
+      .set({
+        status: "pending",
+        currentRole: "executor",
+        failureReason: null,
+        finishedAt: null,
+        cancelRequested: false,
+        updatedAt: new Date(),
+      })
+      .where(eq(runs.id, runId))
+      .returning(),
+  );
+  await appendRunEvent(runId, "run.retry_from_executor");
+  await appendSystemRunLog(runId, "retrying from executor (keeping existing plan)");
+  return updated;
+}
+

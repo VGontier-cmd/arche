@@ -101,6 +101,10 @@ export type WorkflowHooks = {
     };
   }) => Promise<unknown>;
   ensureNotCancelled: (runId: string) => Promise<void>;
+  runValidation: (sandboxId: string) => Promise<{
+    findings: ReviewFinding[];
+    diffExcerpt: string;
+  }>;
 };
 
 export function resolveRoleProfile(
@@ -212,7 +216,9 @@ export function buildExecutorPrompt(input: {
     input.latestHumanResponse
       ? `Latest human response to a previous blocker:\n${input.latestHumanResponse}\n`
       : "",
-    "Do not redefine scope. If the approved plan is insufficient or ambiguous, return action=needs_human_input with one concrete question.",
+    "Do not redefine scope. Do NOT ask for human input unless you are completely blocked and cannot proceed — e.g. missing credentials, missing access, or a fundamental ambiguity in the plan that prevents any progress. Never ask for confirmation of work you can verify yourself (diffs, file contents, test results). If in doubt, proceed autonomously.",
+    "",
+    "IMPORTANT: You MUST implement the plan by calling write_file to create or modify files. Reading files alone is NOT implementation. Do not call finish until you have written all the files required by the plan.",
     "",
     "You MUST return a JSON action object. Valid formats:",
     executorActionSchemaHint,
@@ -250,7 +256,8 @@ export function buildReviewerPrompt(input: {
     input.latestHumanResponse
       ? `Latest human response to a previous blocker:\n${input.latestHumanResponse}\n`
       : "",
-    "Return decision=approve only if the diff is safe and validation findings are resolved. If you need clarification from a human, use decision=needs_human_input and include a question.",
+    "Return decision=approve if the diff is safe and validation findings are resolved. Use decision=request_changes if there are concrete issues to fix. Only use decision=needs_human_input as a last resort when you are genuinely blocked by missing information that cannot be inferred from the diff, plan, or validation output — never ask the human to confirm something you can see in the diff yourself.",
+    "IMPORTANT: If the diff is empty or says '(no diff)', you MUST return decision=request_changes with a finding stating that no code changes were implemented. Never approve an empty diff.",
     "",
     "You MUST return a JSON object with exactly this structure:",
     reviewerSchemaHint,
@@ -481,12 +488,22 @@ export async function runExecutorPatchLoop(input: {
     {
       role: "system",
       content: [
-        "You are the executor role for Arche.",
-        "Return only JSON objects.",
-        "Available actions: read_files, run_command, write_file, delete_file, finish, needs_human_input.",
-        "To modify files, first read_files to get the current content, then write_file with the complete updated content.",
-        "Do not publish changes.",
-        "Do not ask to list files; the repository tree is already provided.",
+        "You are the executor role for Arche — a coding agent that IMPLEMENTS approved plans by writing code.",
+        "Your job is to produce working code changes that fulfill the approved plan. You MUST write or modify files.",
+        "",
+        "## Workflow",
+        "1. Read the relevant source files to understand current code (use read_files).",
+        "2. Implement the changes described in the approved plan by writing files (use write_file).",
+        "3. Optionally run commands to verify your changes (use run_command).",
+        "4. When ALL planned changes are implemented and written to disk, call finish.",
+        "",
+        "## Critical rules",
+        "- You MUST call write_file (or delete_file/apply_patch) at least once before calling finish.",
+        "- Do NOT call finish if you have only read files — reading is preparation, not implementation.",
+        "- Each write_file must contain the COMPLETE file content (not a partial snippet).",
+        "- Do not publish or push changes — Arche handles that after you finish.",
+        "- Do not ask to list files; the repository tree is already provided below.",
+        "- Return exactly one JSON object per step. No markdown, no commentary, just JSON.",
         "",
         "Valid JSON action formats:",
         executorActionSchemaHint,
@@ -515,6 +532,12 @@ export async function runExecutorPatchLoop(input: {
   );
 
   await ensureDirectory(artifactsPath);
+
+  let filesMutated = 0;
+  let emptyFinishRetries = 0;
+  let validationRetries = 0;
+  const MAX_EMPTY_FINISH_RETRIES = 2;
+  const MAX_VALIDATION_RETRIES = 3;
 
   try {
     for (let step = 0; step < input.profile.max_actions; step += 1) {
@@ -603,12 +626,14 @@ export async function runExecutorPatchLoop(input: {
       } else if (action.action === "write_file") {
         try {
           observation = await provider.writeFile(action.path, action.content);
+          filesMutated++;
         } catch (error) {
           observation = { error: error instanceof Error ? error.message : "File write failed" };
         }
       } else if (action.action === "delete_file") {
         try {
           observation = await provider.deleteFile(action.path);
+          filesMutated++;
         } catch (error) {
           observation = { error: error instanceof Error ? error.message : "File delete failed" };
         }
@@ -616,6 +641,7 @@ export async function runExecutorPatchLoop(input: {
         try {
           await git.applyPatch(input.worktreePath, action.patch);
           observation = { result: "patch_applied" };
+          filesMutated++;
         } catch (error) {
           observation = { error: error instanceof Error ? error.message : "Patch application failed" };
         }
@@ -641,6 +667,61 @@ export async function runExecutorPatchLoop(input: {
           output,
         };
       } else {
+        // finish action — validate that code was actually written
+        if (filesMutated === 0 && emptyFinishRetries < MAX_EMPTY_FINISH_RETRIES) {
+          emptyFinishRetries++;
+          await input.hooks.appendSystemRunLog(
+            input.run.id,
+            `executor called finish without writing any files (attempt ${emptyFinishRetries}/${MAX_EMPTY_FINISH_RETRIES}), requesting implementation`,
+          );
+          await input.hooks.appendRunEvent(input.run.id, "provider.empty_finish_rejected", {
+            cycle: input.cycle,
+            step: step + 1,
+            attempt: emptyFinishRetries,
+          });
+          // Bounce back — tell the model to actually write code
+          const rejection = {
+            error: "You called finish but have not written any files yet. " +
+              "Your job is to IMPLEMENT the approved plan by calling write_file to create or modify source files. " +
+              "Read the plan again, identify the files that need to change, and use write_file to make those changes. " +
+              "Do not call finish until you have written at least one file.",
+          };
+          messages.push({ role: "assistant", content: JSON.stringify(action) });
+          messages.push({ role: "user", content: JSON.stringify(rejection) });
+          observation = undefined; // skip the normal observation push below
+          continue;
+        }
+
+        // Validation-gated finish — run validation suite before accepting finish
+        if (filesMutated > 0 && validationRetries < MAX_VALIDATION_RETRIES) {
+          const validationResult = await input.hooks.runValidation(input.sandboxId);
+          if (validationResult.findings.length > 0) {
+            validationRetries++;
+            await input.hooks.appendSystemRunLog(
+              input.run.id,
+              `validation failed after finish (attempt ${validationRetries}/${MAX_VALIDATION_RETRIES}), asking executor to fix`,
+            );
+            await input.hooks.appendRunEvent(input.run.id, "validation.findings_injected", {
+              cycle: input.cycle,
+              step: step + 1,
+              findingCount: validationResult.findings.length,
+              attempt: validationRetries,
+            });
+            messages.push({ role: "assistant", content: JSON.stringify(action) });
+            messages.push({
+              role: "user",
+              content: JSON.stringify({
+                status: "validation_failed",
+                findings: validationResult.findings,
+                instruction:
+                  "Validation failed. Fix the issues listed above, then call finish again.",
+              }),
+            });
+            observation = undefined;
+            continue;
+          }
+        }
+
         const output: ExecutorRoleOutput = {
           summary: action.summary,
           implementedPlanDelta: action.implementedPlanDelta,
@@ -654,7 +735,14 @@ export async function runExecutorPatchLoop(input: {
         await input.hooks.appendRunEvent(input.run.id, "run_task.executor.completed", {
           cycle: input.cycle,
           needsHumanInput: false,
+          filesMutated,
         });
+        if (filesMutated === 0) {
+          await input.hooks.appendSystemRunLog(
+            input.run.id,
+            `warning: executor completed without writing any files after ${MAX_EMPTY_FINISH_RETRIES} retries`,
+          );
+        }
         return {
           taskId: task.id,
           artifactsPath,

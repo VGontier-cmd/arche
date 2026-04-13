@@ -2,6 +2,7 @@ import { asc, eq, or } from "drizzle-orm";
 
 import { db, withSqliteWriteRetry } from "../../db/client";
 import { repoRules, repositories, type RepositoryRow } from "../../db/schema";
+import type { RepositoryUpdateInput, RepoRuleUpdateInput } from "../contracts";
 import { ExternalServiceError, NotFoundError } from "../errors";
 import { makeId } from "../utils";
 import { presentRepoRule } from "./presenters";
@@ -65,6 +66,52 @@ export async function createRepoRule(data: {
     .returning());
 
   return presentRepoRule(rule, { repositoryName: repository.name });
+}
+
+export async function updateRepository(id: string, data: RepositoryUpdateInput) {
+  const [updated] = await withSqliteWriteRetry(() =>
+    db.update(repositories).set({ ...data, updatedAt: new Date() }).where(eq(repositories.id, id)).returning(),
+  );
+  if (!updated) throw new NotFoundError(`Repository ${id} not found`);
+  return updated;
+}
+
+export async function deleteRepository(id: string) {
+  const [deleted] = await withSqliteWriteRetry(() =>
+    db.delete(repositories).where(eq(repositories.id, id)).returning(),
+  );
+  if (!deleted) throw new NotFoundError(`Repository ${id} not found`);
+  return { deleted: true };
+}
+
+export async function updateRepoRule(id: string, data: RepoRuleUpdateInput) {
+  // Resolve repository if repositoryName is provided
+  let repositoryId = data.repositoryId;
+  if (!repositoryId && data.repositoryName) {
+    const repo = await getRepositoryByNameOrId(data.repositoryName);
+    repositoryId = repo.id;
+  }
+
+  const { repositoryName: _, ...rest } = data;
+  const updates: Record<string, unknown> = { ...rest, updatedAt: new Date() };
+  if (repositoryId) updates.repositoryId = repositoryId;
+
+  const [updated] = await withSqliteWriteRetry(() =>
+    db.update(repoRules).set(updates).where(eq(repoRules.id, id)).returning(),
+  );
+  if (!updated) throw new NotFoundError(`Repo rule ${id} not found`);
+
+  // Re-fetch with repository name for presentation
+  const repo = await getRepositoryById(updated.repositoryId);
+  return presentRepoRule(updated, { repositoryName: repo.name });
+}
+
+export async function deleteRepoRule(id: string) {
+  const [deleted] = await withSqliteWriteRetry(() =>
+    db.delete(repoRules).where(eq(repoRules.id, id)).returning(),
+  );
+  if (!deleted) throw new NotFoundError(`Repo rule ${id} not found`);
+  return { deleted: true };
 }
 
 export async function getRepositoryById(repositoryId: string) {
