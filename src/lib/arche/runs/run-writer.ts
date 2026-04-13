@@ -79,7 +79,7 @@ export async function transitionRun(
     updatedAt: now,
     ...extra,
   };
-  if (status === "validating") {
+  if (status === "planning") {
     base.startedAt = extra.startedAt ?? now;
   }
   if (TERMINAL_RUN_STATES.includes(status)) {

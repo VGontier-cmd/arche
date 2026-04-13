@@ -12,11 +12,13 @@ import { serializeDate } from "../utils";
 export type RunListItem = ReturnType<typeof presentRun>;
 
 export function presentRun(run: RunRow) {
+  // Fall back to createdAt for legacy runs that have null startedAt but have started
+  const startedAtFallback = run.startedAt ?? (run.status !== "pending" ? run.createdAt : null);
   return {
     ...run,
     createdAt: serializeDate(run.createdAt),
     updatedAt: serializeDate(run.updatedAt),
-    startedAt: serializeDate(run.startedAt),
+    startedAt: serializeDate(startedAtFallback),
     finishedAt: serializeDate(run.finishedAt),
     leaseExpiresAt: serializeDate(run.leaseExpiresAt),
     archivedAt: serializeDate(run.archivedAt),

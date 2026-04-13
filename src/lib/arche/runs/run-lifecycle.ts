@@ -97,6 +97,8 @@ export async function retryFromExecutor(runId: string) {
         currentRole: "executor",
         failureReason: null,
         finishedAt: null,
+        startedAt: new Date(),
+        latestReviewSummary: null,
         cancelRequested: false,
         updatedAt: new Date(),
       })

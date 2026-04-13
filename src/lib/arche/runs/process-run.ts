@@ -11,10 +11,13 @@ import {
   type RunTaskRow,
 } from "../../db/schema";
 import { readSecretEnv } from "../../env";
+import { CancelledError, ExternalServiceError } from "../errors";
 import { GitManager } from "../git";
 import { GitLabClient } from "../gitlab";
 import { JiraClient, normalizeIssue } from "../jira";
-import { ExternalServiceError, CancelledError } from "../errors";
+import { assertIssueEligible } from "../policy";
+import { resolveExecutionProfile } from "../profiles";
+import { resolveRepositoryForIssue } from "../repository-resolver";
 import {
   buildExecutorPrompt,
   buildPlannerPrompt,
@@ -24,19 +27,16 @@ import {
   runStructuredRole,
   type WorkflowHooks,
 } from "../run-workflow";
-import { assertIssueEligible } from "../policy";
-import { resolveRepositoryForIssue } from "../repository-resolver";
 import { SandboxManager } from "../sandbox";
 import type {
   JiraIssue,
   PlannerRoleOutput,
   ReviewFinding,
-  RunTaskStrategy,
+  RunStatus,
   RunTaskRole,
   RunTaskStatus,
-  RunStatus,
+  RunTaskStrategy,
 } from "../types";
-import { resolveExecutionProfile } from "../profiles";
 import { ensureDirectory, parseCommand } from "../utils";
 import type { WorkerActivity, WorkerStatus } from "../workers";
 import { withRunOwnershipHeartbeat } from "./heartbeat";
@@ -91,8 +91,16 @@ export type RunProcessDeps = {
     run: Pick<RunRow, "id" | "ticketKey">,
     input: WorkerPhaseInput,
   ) => Promise<void>;
-  appendRunEvent: (runId: string, type: string, payload?: Record<string, unknown>) => Promise<void>;
-  appendRunLog: (runId: string, stream: string, message: string) => Promise<void>;
+  appendRunEvent: (
+    runId: string,
+    type: string,
+    payload?: Record<string, unknown>,
+  ) => Promise<void>;
+  appendRunLog: (
+    runId: string,
+    stream: string,
+    message: string,
+  ) => Promise<void>;
   appendRunMessage: (
     runId: string,
     role: string,
@@ -109,7 +117,11 @@ export type RunProcessDeps = {
     ownerRunId: string,
     ttlSeconds: number,
   ) => Promise<void>;
-  refreshLease: (runId: string, workerId: string, leaseTtlSeconds: number) => Promise<void>;
+  refreshLease: (
+    runId: string,
+    workerId: string,
+    leaseTtlSeconds: number,
+  ) => Promise<void>;
   refreshLock: (
     resourceType: string,
     resourceKey: string,
@@ -121,7 +133,10 @@ export type RunProcessDeps = {
     resourceKey: string,
     ownerRunId: string,
   ) => Promise<void>;
-  getLatestTaskForRole: (runId: string, role: RunTaskRole) => Promise<RunTaskRow | null>;
+  getLatestTaskForRole: (
+    runId: string,
+    role: RunTaskRole,
+  ) => Promise<RunTaskRow | null>;
   ensurePlannerOutput: (task: RunTaskRow | null) => PlannerRoleOutput;
   createRunTask: (input: {
     runId: string;
@@ -180,7 +195,9 @@ async function runValidationSuite(
 ) {
   const config = await getConfig();
   const repository =
-    run.repositoryId !== null ? await deps.getRepositoryById(run.repositoryId) : null;
+    run.repositoryId !== null
+      ? await deps.getRepositoryById(run.repositoryId)
+      : null;
   const commands = repository?.validationCommands?.length
     ? repository.validationCommands
     : config.defaults.validation_commands;
@@ -216,7 +233,11 @@ async function runValidationSuite(
     if (result.returncode !== 0) {
       findings.push({
         title: `Validation failed: ${parsedCommand.normalized}`,
-        body: (result.stderr || result.stdout || "Validation command failed").slice(0, 2000),
+        body: (
+          result.stderr ||
+          result.stdout ||
+          "Validation command failed"
+        ).slice(0, 2000),
       });
       await deps.appendRunEvent(run.id, "validation.command_failed", {
         command: parsedCommand.normalized,
@@ -247,7 +268,9 @@ async function runValidationSuite(
     });
   }
 
-  const diffExcerpt = run.worktreePath ? await git.diffExcerpt(run.worktreePath) : "";
+  const diffExcerpt = run.worktreePath
+    ? await git.diffExcerpt(run.worktreePath)
+    : "";
   await withSqliteWriteRetry(() =>
     db
       .update(runs)
@@ -303,8 +326,16 @@ async function markRunNeedsHumanInput(
     question: input.question,
     findingCount: input.findings?.length ?? 0,
   });
-  await deps.appendRunMessage(input.runId, "system", "human_input", input.question);
-  await deps.appendSystemRunLog(input.runId, `human input required for ${input.role}`);
+  await deps.appendRunMessage(
+    input.runId,
+    "system",
+    "human_input",
+    input.question,
+  );
+  await deps.appendSystemRunLog(
+    input.runId,
+    `human input required for ${input.role}`,
+  );
   return run;
 }
 
@@ -364,7 +395,11 @@ async function ensureRunWorktree(
     }
 
     // Recreate the worktree from scratch.
-    const worktreePath = await git.createWorktree(repository, run.branchName, run.ticketKey);
+    const worktreePath = await git.createWorktree(
+      repository,
+      run.branchName,
+      run.ticketKey,
+    );
     await ensureDirectory(dirname(worktreePath));
     const [updated] = await withSqliteWriteRetry(() =>
       db
@@ -382,7 +417,10 @@ async function ensureRunWorktree(
       worktreePath,
       reason: "previous worktree was missing or invalid",
     });
-    await deps.appendSystemRunLog(run.id, `worktree recreated at ${worktreePath} (previous was invalid)`);
+    await deps.appendSystemRunLog(
+      run.id,
+      `worktree recreated at ${worktreePath} (previous was invalid)`,
+    );
     return {
       run: updated,
       worktreePath,
@@ -391,7 +429,11 @@ async function ensureRunWorktree(
   }
 
   const branchName = run.branchName ?? git.buildBranchName(issue);
-  const worktreePath = await git.createWorktree(repository, branchName, run.ticketKey);
+  const worktreePath = await git.createWorktree(
+    repository,
+    branchName,
+    run.ticketKey,
+  );
   await ensureDirectory(dirname(worktreePath));
   const [updated] = await withSqliteWriteRetry(() =>
     db
@@ -429,7 +471,8 @@ async function ensureRunSandbox(
       sandboxId: run.sandboxId,
     };
   }
-  const artifactsPath = run.artifactsPath ?? deps.buildRunArtifactsPath("", run.id);
+  const artifactsPath =
+    run.artifactsPath ?? deps.buildRunArtifactsPath("", run.id);
   await ensureDirectory(artifactsPath);
   const sandboxId = await sandbox.create(run.id, worktreePath, {
     artifactsPath,
@@ -465,7 +508,9 @@ async function pushApprovedRun(
   deps: RunProcessDeps,
 ) {
   if (!input.run.worktreePath || !input.run.branchName) {
-    throw new ExternalServiceError("Publishable run is missing worktree or branch information");
+    throw new ExternalServiceError(
+      "Publishable run is missing worktree or branch information",
+    );
   }
 
   await deps.transitionRun(input.run.id, "publishing", {
@@ -493,7 +538,10 @@ async function pushApprovedRun(
   await deps.appendRunEvent(input.run.id, "git.publish_succeeded", {
     branchName: input.run.branchName,
   });
-  await deps.appendSystemRunLog(input.run.id, `branch ${input.run.branchName} pushed`);
+  await deps.appendSystemRunLog(
+    input.run.id,
+    `branch ${input.run.branchName} pushed`,
+  );
   await deps.transitionRun(input.run.id, "pushed");
 }
 
@@ -521,7 +569,9 @@ function assertExecutionProfileSecret(
   },
 ) {
   if (!readSecretEnv(profile.api_key_env)) {
-    throw new ExternalServiceError(`Missing API key for ${role} profile ${profile.name}`);
+    throw new ExternalServiceError(
+      `Missing API key for ${role} profile ${profile.name}`,
+    );
   }
 }
 
@@ -547,7 +597,12 @@ async function resolveRunContextForProcessing(input: {
     throw new ExternalServiceError("No repository resolved for run");
   }
 
-  const run = await ensureRunContext(input.runId, input.run, repository, input.deps);
+  const run = await ensureRunContext(
+    input.runId,
+    input.run,
+    repository,
+    input.deps,
+  );
 
   const bypassedEligibilityChecks =
     typeof run.manualOverride === "object" &&
@@ -588,7 +643,9 @@ async function runPlannerPhase(input: {
     currentRole: "planner",
   });
 
-  const trackedFiles = await input.services.git.trackedFiles(input.worktreePath);
+  const trackedFiles = await input.services.git.trackedFiles(
+    input.worktreePath,
+  );
   const plannerProfile = resolveRoleProfile(
     input.run,
     "planner",
@@ -606,7 +663,8 @@ async function runPlannerPhase(input: {
       allowedCommands: commandPolicies.allowedCommands,
       validationCommands: commandPolicies.validationCommands,
       trackedFiles,
-      requirePublishApproval: input.services.config.workflow.require_publish_approval,
+      requirePublishApproval:
+        input.services.config.workflow.require_publish_approval,
       latestHumanResponse: input.run.latestHumanResponse ?? null,
     }),
     profile: plannerProfile,
@@ -720,7 +778,8 @@ async function runExecutorPhase(input: {
       {
         runId: input.runId,
         role: "executor",
-        question: executorResult.output.question ?? "Executor requires clarification.",
+        question:
+          executorResult.output.question ?? "Executor requires clarification.",
         findings: input.pendingFindings,
       },
       input.deps,
@@ -820,7 +879,10 @@ async function runReviewerPhase(input: {
       ? input.pendingFindings
       : [...input.pendingFindings, ...reviewerOutput.findings];
 
-  if (reviewerOutput.decision === "approve" && input.pendingFindings.length > 0) {
+  if (
+    reviewerOutput.decision === "approve" &&
+    input.pendingFindings.length > 0
+  ) {
     reviewerOutput = {
       ...reviewerOutput,
       decision: "request_changes",
@@ -859,9 +921,13 @@ async function runReviewerPhase(input: {
         })
         .where(eq(runs.id, input.runId)),
     );
-    await input.deps.appendRunEvent(input.runId, "run.awaiting_publish_approval", {
-      cycle: input.currentCycle,
-    });
+    await input.deps.appendRunEvent(
+      input.runId,
+      "run.awaiting_publish_approval",
+      {
+        cycle: input.currentCycle,
+      },
+    );
     await input.deps.appendSystemRunLog(
       input.runId,
       "review approved; waiting for publish approval",
@@ -872,7 +938,8 @@ async function runReviewerPhase(input: {
   // request_changes or needs_human_input — always route to human.
   // For request_changes, set currentRole to "executor" so that when the human
   // responds, the next worker pickup resumes from the executor with the findings.
-  const nextRole = reviewerOutput.decision === "needs_human_input" ? "reviewer" : "executor";
+  const nextRole =
+    reviewerOutput.decision === "needs_human_input" ? "reviewer" : "executor";
   const question =
     reviewerOutput.decision === "needs_human_input"
       ? (reviewerOutput.question ?? "Reviewer requires clarification.")
@@ -917,8 +984,16 @@ async function handleRunProcessingFailure(input: {
       { failureReason: message },
       { reason: message },
     );
-    await input.deps.appendSystemRunLog(input.runId, `run cancelled: ${message}`);
-    await input.deps.appendRunMessage(input.runId, "system", "cancelled", message);
+    await input.deps.appendSystemRunLog(
+      input.runId,
+      `run cancelled: ${message}`,
+    );
+    await input.deps.appendRunMessage(
+      input.runId,
+      "system",
+      "cancelled",
+      message,
+    );
   } else {
     await input.jira
       .commentIssue(input.run.ticketKey, `Run failed: ${message}`)
@@ -977,7 +1052,8 @@ async function cleanupProcessedRun(input: {
     } catch (error) {
       await input.deps.appendRunEvent(input.runId, "sandbox.destroy_failed", {
         sandboxId: finalRun.sandboxId,
-        reason: error instanceof Error ? error.message : "Unknown cleanup error",
+        reason:
+          error instanceof Error ? error.message : "Unknown cleanup error",
       });
     }
   }
@@ -989,7 +1065,10 @@ async function cleanupProcessedRun(input: {
           input.runId,
           `cleaning worktree ${finalRun.worktreePath}`,
         );
-        await input.git.cleanupWorktree(input.repository, finalRun.worktreePath);
+        await input.git.cleanupWorktree(
+          input.repository,
+          finalRun.worktreePath,
+        );
         await withSqliteWriteRetry(() =>
           db
             .update(runs)
@@ -1013,10 +1092,15 @@ async function cleanupProcessedRun(input: {
             })
             .where(eq(runs.id, input.runId)),
         );
-        await input.deps.appendRunEvent(input.runId, "worktree.cleanup_failed", {
-          worktreePath: finalRun.worktreePath,
-          reason: error instanceof Error ? error.message : "Unknown cleanup error",
-        });
+        await input.deps.appendRunEvent(
+          input.runId,
+          "worktree.cleanup_failed",
+          {
+            worktreePath: finalRun.worktreePath,
+            reason:
+              error instanceof Error ? error.message : "Unknown cleanup error",
+          },
+        );
       }
     } else {
       await withSqliteWriteRetry(() =>
@@ -1046,7 +1130,8 @@ async function cleanupProcessedRun(input: {
       await input.deps.appendRunEvent(input.runId, "lock.release_failed", {
         resourceType: "ticket",
         resourceKey: input.run.ticketKey,
-        reason: error instanceof Error ? error.message : "Unknown cleanup error",
+        reason:
+          error instanceof Error ? error.message : "Unknown cleanup error",
       });
     }
   }
@@ -1109,7 +1194,12 @@ export async function processRunWithDeps(
     repository = resolvedRepository;
     const { issue } = context;
 
-    await deps.acquireLock("ticket", run.ticketKey, run.id, config.worker.lease_ttl_seconds);
+    await deps.acquireLock(
+      "ticket",
+      run.ticketKey,
+      run.id,
+      config.worker.lease_ttl_seconds,
+    );
     lockHeld = true;
     await deps.refreshLease(runId, workerId, config.worker.lease_ttl_seconds);
     return await withRunOwnershipHeartbeat(
@@ -1155,8 +1245,11 @@ export async function processRunWithDeps(
         );
         run = sandboxReady.run;
 
-        let currentRole = (run.currentRole ?? "planner") as RunTaskRole;
-        let currentCycle = Math.max(run.currentCycle ?? 0, currentRole === "planner" ? 0 : 1);
+        const currentRole = (run.currentRole ?? "planner") as RunTaskRole;
+        let currentCycle = Math.max(
+          run.currentCycle ?? 0,
+          currentRole === "planner" ? 0 : 1,
+        );
         // If re-entering executor after reviewer request_changes (latestReviewSummary is set),
         // bump the cycle so tasks and LLM invocations are correctly attributed to cycle N+1.
         if (currentRole === "executor" && run.latestReviewSummary !== null) {
@@ -1186,16 +1279,23 @@ export async function processRunWithDeps(
         const plan = {
           planMarkdown:
             run.planMarkdown ??
-            deps.ensurePlannerOutput(await deps.getLatestTaskForRole(runId, "planner"))
-              .planMarkdown,
+            deps.ensurePlannerOutput(
+              await deps.getLatestTaskForRole(runId, "planner"),
+            ).planMarkdown,
           risks: run.planRisks,
           openQuestions: run.planOpenQuestions,
           needsHumanInput: false,
         };
-        const pendingFindings = Array.isArray(run.latestFindings) ? run.latestFindings : [];
+        const pendingFindings = Array.isArray(run.latestFindings)
+          ? run.latestFindings
+          : [];
         let diffExcerpt = run.diffExcerpt ?? "";
 
-        await deps.refreshLease(runId, workerId, config.worker.lease_ttl_seconds);
+        await deps.refreshLease(
+          runId,
+          workerId,
+          config.worker.lease_ttl_seconds,
+        );
 
         // Re-entry from reviewer needs_human_input (genuine reviewer question)
         if (currentRole === "reviewer") {
@@ -1281,7 +1381,9 @@ export async function processRunWithDeps(
           firstReviewResult.status === "needs_human_input" &&
           firstReviewResult.currentRole === "executor"
         ) {
-          const autoRetryFindings = Array.isArray(firstReviewResult.latestFindings)
+          const autoRetryFindings = Array.isArray(
+            firstReviewResult.latestFindings,
+          )
             ? firstReviewResult.latestFindings
             : [];
           const autoRetryCycle = currentCycle + 1;
@@ -1296,20 +1398,18 @@ export async function processRunWithDeps(
             findingCount: autoRetryFindings.length,
           });
 
-          // Reset from needs_human_input back to executing so the retry can proceed
-          await withSqliteWriteRetry(() =>
-            db
-              .update(runs)
-              .set({ status: "executing", pendingQuestion: null, updatedAt: new Date() })
-              .where(eq(runs.id, runId)),
+          await deps.refreshLease(
+            runId,
+            workerId,
+            config.worker.lease_ttl_seconds,
           );
 
-          await deps.refreshLease(runId, workerId, config.worker.lease_ttl_seconds);
-
+          // runExecutorPhase calls transitionRun("executing") at its start,
+          // which properly resets the status and emits the event.
           const retryExecutorPhase = await runExecutorPhase({
             runId,
             workerId,
-            run: firstReviewResult,
+            run: await deps.getRunById(runId),
             issue,
             repository: resolvedRepository,
             plan,

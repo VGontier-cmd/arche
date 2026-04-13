@@ -289,6 +289,9 @@ export async function saveConfig(
   await writeFile(tmpPath, stringify(validated), "utf8");
   await rename(tmpPath, configPath);
 
+  // Update in-memory cache immediately — don't wait for the file watcher's 500ms debounce
+  configPromise = Promise.resolve(validated);
+
   return validated;
 }
 
