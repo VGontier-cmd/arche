@@ -1,5 +1,5 @@
 import type { DashboardRun } from "../types";
-import { formatCost, formatDuration, formatTime } from "../lib/format";
+import { formatCost, formatDuration, formatRelativeTime } from "../lib/format";
 import { StatusBadge } from "./StatusBadge";
 
 export function RunItem({
@@ -9,6 +9,7 @@ export function RunItem({
   jiraBaseUrl,
   isChecked,
   onToggleCheck,
+  workerStep,
 }: {
   run: DashboardRun;
   selected: boolean;
@@ -16,8 +17,12 @@ export function RunItem({
   jiraBaseUrl?: string | null;
   isChecked?: boolean;
   onToggleCheck?: (id: string) => void;
+  workerStep?: number | null;
 }) {
-  const cost = run.estimatedCostUsd ? ` \u00b7 ${formatCost(run.estimatedCostUsd)}` : "";
+  const cost = run.estimatedCostUsd ? ` · ${formatCost(run.estimatedCostUsd)}` : "";
+  const findingsCount = run.latestFindings?.length ?? 0;
+  const showFindingsBadge = run.status === "needs_human_input" && findingsCount > 0;
+  const showStepIndicator = workerStep != null && run.status === "executing";
 
   return (
     <div
@@ -39,7 +44,7 @@ export function RunItem({
       )}
       <StatusBadge status={run.status} />
       <div className="flex-1 min-w-0">
-        <div className="font-semibold text-[var(--color-base-content)]">
+        <div className="flex items-center gap-1.5 font-semibold text-[var(--color-base-content)]">
           {jiraBaseUrl ? (
             <a
               href={`${jiraBaseUrl}/browse/${run.ticketKey}`}
@@ -53,14 +58,21 @@ export function RunItem({
           ) : (
             run.ticketKey
           )}
+          {showFindingsBadge && (
+            <span className="inline-flex items-center px-1 py-0 rounded text-[9px] font-bold bg-[#3c1116] text-[#f85149] shrink-0">
+              {findingsCount}
+            </span>
+          )}
         </div>
         <div className="text-[11px] text-[var(--fg2)]">
           {run.repoName || "-"}
           {cost}
+          {showStepIndicator && (
+            <span className="ml-1 text-[#58a6ff]">· step {workerStep}</span>
+          )}
         </div>
         <div className="text-[10px] text-[var(--fg3)]">
-          {formatTime(run.createdAt)} &middot;{" "}
-          {formatDuration(run.startedAt, run.finishedAt)}
+          {formatRelativeTime(run.createdAt)} · {formatDuration(run.startedAt, run.finishedAt)}
         </div>
       </div>
     </div>

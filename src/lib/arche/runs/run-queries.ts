@@ -27,6 +27,15 @@ export async function listRuns() {
   return rows.map(presentRun);
 }
 
+export async function getRunsByTicketKey(ticketKey: string) {
+  const rows = await db
+    .select()
+    .from(runs)
+    .where(eq(runs.ticketKey, ticketKey))
+    .orderBy(desc(runs.createdAt));
+  return rows.map(presentRun);
+}
+
 export async function listExecutionProfiles() {
   const config = await getConfig();
   const snapshot = {

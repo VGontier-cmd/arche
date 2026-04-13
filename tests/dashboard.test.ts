@@ -518,6 +518,7 @@ function makeSnapshot(
     jiraBaseUrl: null,
     repositoryCount: expect.any(Number),
     ruleCount: expect.any(Number),
+    autoCreateMr: expect.any(Boolean),
     systemStats: { ramMb: 256, ramTotalMb: 16384, loadAvg1: 0.5, cpuCount: 8 },
     summary: {
       inboxCount: 2,

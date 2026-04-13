@@ -153,6 +153,7 @@ export function buildPlannerPrompt(input: {
   trackedFiles: string[];
   requirePublishApproval: boolean;
   latestHumanResponse: string | null;
+  recentCommits: string[];
 }) {
   return [
     "You are the planner role for Arche.",
@@ -171,6 +172,9 @@ export function buildPlannerPrompt(input: {
     "Repository tree sample:",
     input.trackedFiles.slice(0, 400).join("\n") || "(empty repo)",
     "",
+    input.recentCommits.length > 0
+      ? `Recent commits on this branch:\n${input.recentCommits.join("\n")}\n`
+      : "",
     input.latestHumanResponse
       ? `Latest human response to a previous question:\n${input.latestHumanResponse}\n`
       : "",

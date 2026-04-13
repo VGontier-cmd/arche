@@ -506,4 +506,13 @@ export class GitManager {
     }
     return result.stdout.split("\n").filter(Boolean);
   }
+
+  async getRecentCommits(worktreePath: string, limit = 20): Promise<string[]> {
+    const result = await runCommand("git", [
+      "-C", worktreePath,
+      "log", "--oneline", `-${limit}`,
+    ]);
+    if (result.returncode !== 0) return [];
+    return result.stdout.trim().split("\n").filter(Boolean);
+  }
 }

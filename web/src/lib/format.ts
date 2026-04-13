@@ -24,3 +24,12 @@ export function formatCost(usd: string | number | null | undefined): string {
   if (usd === null || usd === undefined) return "";
   return "$" + Number(usd).toFixed(4);
 }
+
+export function formatRelativeTime(ts: string | null | undefined): string {
+  if (!ts) return "-";
+  const ms = Date.now() - new Date(ts).getTime();
+  if (ms < 60_000) return "just now";
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`;
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h ago`;
+  return formatTime(ts);
+}

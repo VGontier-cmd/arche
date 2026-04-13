@@ -8,7 +8,7 @@ export {
   presentRunTask,
   presentRepoRule,
 } from "./presenters";
-export { listRuns, listExecutionProfiles, getRunDetail, getRunById } from "./run-queries";
+export { listRuns, listExecutionProfiles, getRunDetail, getRunById, getRunsByTicketKey } from "./run-queries";
 export {
   listRunLogs,
   listRunLogsPage,

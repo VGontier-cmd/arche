@@ -2,14 +2,15 @@ import { useEffect, useRef } from "react";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 
 const shortcuts = [
-  { key: "j / \u2193", desc: "Next run" },
-  { key: "k / \u2191", desc: "Previous run" },
+  { key: "j / ↓", desc: "Next run" },
+  { key: "k / ↑", desc: "Previous run" },
   { key: "a", desc: "Approve (plan or publish)" },
   { key: "c", desc: "Cancel run" },
   { key: "x", desc: "Reject publish" },
   { key: "h", desc: "Respond to human input" },
   { key: "t", desc: "Retry failed run" },
   { key: "n", desc: "Trigger new run" },
+  { key: "r", desc: "Refresh dashboard" },
   { key: "/", desc: "Focus search" },
   { key: "?", desc: "Toggle this help" },
   { key: "Esc", desc: "Close modal / overlay" },

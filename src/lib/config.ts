@@ -35,6 +35,7 @@ const defaultWorkflowConfig = {
   mode: "plan_execute_review",
   require_plan_approval: true,
   require_publish_approval: true,
+  auto_create_mr: false,
 } as const;
 
 const defaultRoutingConfig = {
@@ -167,6 +168,7 @@ export const orchestratorConfigSchema = z.object({
       mode: z.literal("plan_execute_review").default(defaultWorkflowConfig.mode),
       require_plan_approval: z.boolean().default(defaultWorkflowConfig.require_plan_approval),
       require_publish_approval: z.boolean().default(defaultWorkflowConfig.require_publish_approval),
+      auto_create_mr: z.boolean().default(defaultWorkflowConfig.auto_create_mr),
     })
     .default(defaultWorkflowConfig),
   executors: executorsConfigSchema.default(defaultExecutorsConfig),

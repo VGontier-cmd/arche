@@ -1,5 +1,5 @@
 import { forwardRef, useMemo, useState } from "react";
-import type { DashboardRun } from "../types";
+import type { DashboardRun, DashboardWorker } from "../types";
 import { RunItem } from "./RunItem";
 import { SidebarFilters, EMPTY_FILTERS, hasActiveFilters, type FilterState } from "./SidebarFilters";
 
@@ -50,6 +50,7 @@ export const Sidebar = forwardRef<HTMLInputElement, {
   onToggleCheck?: (id: string) => void;
   onCheckAllInbox?: (checked: boolean) => void;
   onBulkAction?: (action: string) => void;
+  workers?: DashboardWorker[];
 }>(function Sidebar({
   inboxRuns,
   activeRuns,
@@ -61,16 +62,28 @@ export const Sidebar = forwardRef<HTMLInputElement, {
   onToggleCheck,
   onCheckAllInbox,
   onBulkAction,
+  workers = [],
 }, searchRef) {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS);
   const [filtersOpen, setFiltersOpen] = useState(false);
 
+  const isFiltered = search !== "" || hasActiveFilters(filters);
+
   const emptyMessages: Record<string, string> = {
-    Inbox: "All caught up",
-    Active: "No active runs",
-    Recent: "No recent runs",
+    Inbox: isFiltered ? "No matches" : "All caught up",
+    Active: isFiltered ? "No matches" : "",
+    Recent: isFiltered ? "No matches" : "",
   };
+
+  // Map runId → worker step for active runs
+  const workerStepByRunId = useMemo(() => {
+    const map = new Map<string, number | null>();
+    for (const w of workers) {
+      if (w.currentRunId) map.set(w.currentRunId, w.currentStep);
+    }
+    return map;
+  }, [workers]);
 
   const repositories = useMemo(() => {
     const names = new Set<string>();
@@ -137,39 +150,55 @@ export const Sidebar = forwardRef<HTMLInputElement, {
         </div>
       )}
 
-      {sections.map((section) => (
-        <div key={section.title}>
-          <div className="flex items-center gap-2 text-[11px] font-semibold text-[var(--fg2)] uppercase tracking-wide px-4 py-3 pb-1 border-b border-[var(--border-color)]">
-            {section.title === "Inbox" && onCheckAllInbox && section.runs.length > 0 && (
-              <input
-                type="checkbox"
-                checked={allInboxChecked}
-                onChange={(e) => onCheckAllInbox(e.target.checked)}
-                className="accent-[#58a6ff] cursor-pointer"
-                onClick={(e) => e.stopPropagation()}
-              />
-            )}
-            <span>{section.title} ({section.runs.length})</span>
-          </div>
-          {section.runs.length === 0 ? (
-            <div className="text-[var(--fg3)] text-center py-4 text-xs">
-              {emptyMessages[section.title]}
+      {sections.map((section) => {
+        const empty = section.runs.length === 0;
+        const emptyMsg = emptyMessages[section.title];
+        // Hide Active/Recent when empty and not filtered
+        if (empty && !emptyMsg) return null;
+
+        return (
+          <div key={section.title}>
+            <div className="flex items-center gap-2 text-[11px] font-semibold text-[var(--fg2)] uppercase tracking-wide px-4 py-3 pb-1 border-b border-[var(--border-color)]">
+              {section.title === "Inbox" && onCheckAllInbox && section.runs.length > 0 && (
+                <input
+                  type="checkbox"
+                  checked={allInboxChecked}
+                  onChange={(e) => onCheckAllInbox(e.target.checked)}
+                  className="accent-[#58a6ff] cursor-pointer"
+                  onClick={(e) => e.stopPropagation()}
+                />
+              )}
+              <span>{section.title} ({section.runs.length})</span>
             </div>
-          ) : (
-            section.runs.map((run) => (
-              <RunItem
-                key={run.id}
-                run={run}
-                selected={run.id === selectedRunId}
-                onSelect={onSelectRun}
-                jiraBaseUrl={jiraBaseUrl}
-                isChecked={checkedRunIds?.has(run.id)}
-                onToggleCheck={section.title === "Inbox" ? onToggleCheck : undefined}
-              />
-            ))
-          )}
-        </div>
-      ))}
+            {empty ? (
+              <div className="text-[var(--fg3)] text-center py-4 text-xs flex flex-col items-center gap-1">
+                {emptyMsg}
+                {isFiltered && section.title === "Inbox" && (
+                  <button
+                    className="text-[#58a6ff] hover:underline text-[10px]"
+                    onClick={() => { setSearch(""); setFilters(EMPTY_FILTERS); }}
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+            ) : (
+              section.runs.map((run) => (
+                <RunItem
+                  key={run.id}
+                  run={run}
+                  selected={run.id === selectedRunId}
+                  onSelect={onSelectRun}
+                  jiraBaseUrl={jiraBaseUrl}
+                  isChecked={checkedRunIds?.has(run.id)}
+                  onToggleCheck={section.title === "Inbox" ? onToggleCheck : undefined}
+                  workerStep={workerStepByRunId.get(run.id)}
+                />
+              ))
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 });

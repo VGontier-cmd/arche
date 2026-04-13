@@ -37,13 +37,17 @@ function playNotificationSound() {
   } catch { /* audio not available */ }
 }
 
-export function useDashboard(initialRunId?: string | null) {
+export function useDashboard(initialRunId?: string | null, onError?: (message: string) => void) {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(initialRunId ?? null);
   const [connectionInfo, setConnectionInfo] = useState<ConnectionInfo>({ state: "connecting", reconnectAttempt: 0 });
 
   const selectedRunIdRef = useRef(selectedRunId);
   selectedRunIdRef.current = selectedRunId;
+
+  // Keep a stable ref so callbacks don't need to re-bind when the handler changes
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
 
   const prevRunStatusesRef = useRef<Map<string, string> | null>(null);
   const isInitialLoadRef = useRef(true);
@@ -210,7 +214,7 @@ export function useDashboard(initialRunId?: string | null) {
           };
         });
       } catch (e) {
-        console.error("detail fetch failed", e);
+        onErrorRef.current?.(`Detail fetch failed: ${e instanceof Error ? e.message : String(e)}`);
       } finally {
         fetching = false;
       }
@@ -230,7 +234,7 @@ export function useDashboard(initialRunId?: string | null) {
       const data = await fetchSnapshot(selectedRunIdRef.current);
       setSnapshot(data);
     } catch (e) {
-      console.error("refresh failed", e);
+      onErrorRef.current?.(`Refresh failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }, []);
 

@@ -19,6 +19,7 @@ import { DoctorBanner } from "./components/DoctorBanner";
 import { QuickReferenceOverlay } from "./components/QuickReferenceOverlay";
 import { SetupWizard } from "./components/SetupWizard";
 import { SkeletonLoader } from "./components/SkeletonLoader";
+import { TicketHistoryModal } from "./components/TicketHistoryModal";
 
 const DESTRUCTIVE_ACTIONS: Record<string, { title: string; body: string; label: string }> = {
   cancel: {
@@ -40,9 +41,9 @@ const DESTRUCTIVE_ACTIONS: Record<string, { title: string; body: string; label: 
 
 export default function App() {
   const { activeView, initialRunId, setRoute } = useHashRouter();
-  const { snapshot, selectedRunId, selectRun: selectRunInner, refresh, connectionInfo, applyOptimisticUpdate } =
-    useDashboard(initialRunId);
   const toast = useToast();
+  const { snapshot, selectedRunId, selectRun: selectRunInner, refresh, connectionInfo, applyOptimisticUpdate } =
+    useDashboard(initialRunId, (msg) => toast.error(msg));
   const searchRef = useRef<HTMLInputElement>(null);
 
   const selectRun = useCallback((id: string | null) => {
@@ -53,6 +54,7 @@ export default function App() {
   const [triggerRunOpen, setTriggerRunOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [wizardDismissed, setWizardDismissed] = useState(false);
+  const [ticketHistoryKey, setTicketHistoryKey] = useState<string | null>(null);
 
   const [modal, setModal] = useState<{
     runId: string;
@@ -105,6 +107,8 @@ export default function App() {
     label: string;
   } | null>(null);
 
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+
   const executeAction = useCallback(
     async (runId: string, action: string) => {
       const optimisticStatus: Record<string, string> = {
@@ -120,6 +124,7 @@ export default function App() {
         applyOptimisticUpdate(runId, { status: newStatus });
       }
 
+      setPendingAction(action);
       try {
         await postRunAction(runId, action);
         if (action === "archive") {
@@ -130,6 +135,8 @@ export default function App() {
       } catch (e) {
         await refresh();
         toast.error("Action failed: " + (e instanceof Error ? e.message : e));
+      } finally {
+        setPendingAction(null);
       }
     },
     [refresh, selectRun, toast, applyOptimisticUpdate],
@@ -282,6 +289,11 @@ export default function App() {
       if (!modalOpen) setTriggerRunOpen(true);
     };
 
+    // Refresh shortcut
+    bindings["r"] = () => {
+      if (!modalOpen) refresh();
+    };
+
     if (!run || activeView !== "runs") return bindings;
 
     if (run.status === "awaiting_plan_approval") {
@@ -346,11 +358,14 @@ export default function App() {
                 onToggleCheck={handleToggleCheck}
                 onCheckAllInbox={handleCheckAllInbox}
                 onBulkAction={handleBulkAction}
+                workers={snapshot.workers}
               />
               <DetailPane
                 snapshot={snapshot}
                 onAction={handleAction}
                 onOpenRespond={handleOpenRespond}
+                pendingAction={pendingAction}
+                onViewTicketHistory={setTicketHistoryKey}
               />
             </div>
           )}
@@ -391,6 +406,11 @@ export default function App() {
         onClose={() => setTriggerRunOpen(false)}
       />
       {helpOpen && <QuickReferenceOverlay onClose={() => setHelpOpen(false)} />}
+      <TicketHistoryModal
+        ticketKey={ticketHistoryKey}
+        onClose={() => setTicketHistoryKey(null)}
+        onSelectRun={(id) => { selectRun(id); setActiveView("runs"); }}
+      />
     </div>
   );
 }

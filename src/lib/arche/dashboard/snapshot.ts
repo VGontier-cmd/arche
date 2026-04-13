@@ -111,6 +111,7 @@ export type DashboardListSnapshot = {
   jiraBaseUrl: string | null;
   repositoryCount: number;
   ruleCount: number;
+  autoCreateMr: boolean;
   summary: DashboardSummary;
   services: DashboardServiceStatus;
   systemStats: DashboardSystemStats;
@@ -283,6 +284,7 @@ export async function getDashboardSnapshot(options: {
     jiraBaseUrl,
     repositoryCount,
     ruleCount,
+    autoCreateMr: config.workflow.auto_create_mr,
     credentialEnv: deriveDashboardCredentialEnvStatus(config),
     summary: {
       inboxCount: inboxRows.length,
@@ -380,6 +382,7 @@ export async function getDashboardListSnapshot(options: {
     jiraBaseUrl,
     repositoryCount,
     ruleCount,
+    autoCreateMr: config.workflow.auto_create_mr,
     credentialEnv: deriveDashboardCredentialEnvStatus(config),
     summary: {
       inboxCount: inboxRows.length,

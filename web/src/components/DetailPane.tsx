@@ -13,10 +13,14 @@ export function DetailPane({
   snapshot,
   onAction,
   onOpenRespond,
+  pendingAction,
+  onViewTicketHistory,
 }: {
   snapshot: DashboardSnapshot;
   onAction: (runId: string, action: string) => void;
   onOpenRespond: (runId: string, title: string) => void;
+  pendingAction?: string | null;
+  onViewTicketHistory?: (ticketKey: string) => void;
 }) {
   const run: DashboardRun | null = snapshot.selectedRun;
 
@@ -39,13 +43,15 @@ export function DetailPane({
         {run.ticketKey}: {run.ticketTitle || ""}
       </h2>
 
-      <DetailMeta run={run} jiraBaseUrl={snapshot.jiraBaseUrl} />
+      <DetailMeta run={run} jiraBaseUrl={snapshot.jiraBaseUrl} onViewTicketHistory={onViewTicketHistory} />
       <DetailActions
         run={run}
         onAction={onAction}
         onOpenRespond={onOpenRespond}
         gitlabConfigured={snapshot.credentialEnv.gitlab}
         githubConfigured={snapshot.credentialEnv.github}
+        pendingAction={pendingAction}
+        autoCreateMr={snapshot.autoCreateMr}
       />
       {run.mrUrl && (
         <div className="mb-5">
@@ -61,7 +67,11 @@ export function DetailPane({
       )}
       <DetailPlan planMarkdown={run.planMarkdown} />
       <DiffViewer diffExcerpt={run.diffExcerpt} />
-      <DetailPendingQuestion pendingQuestion={run.pendingQuestion} />
+      <DetailPendingQuestion
+        pendingQuestion={run.pendingQuestion}
+        currentRole={run.currentRole}
+        latestFindings={run.latestFindings}
+      />
       <LiveLogs runId={run.id} runStatus={run.status} />
       <TasksList tasks={snapshot.tasks} />
       <Timeline timeline={snapshot.timeline} timelineTotal={snapshot.timelineTotal} runId={snapshot.selectedRunId} />

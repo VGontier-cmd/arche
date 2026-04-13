@@ -45,6 +45,7 @@ import {
   listRunLogs,
   listRunLogsPage,
   listRuns,
+  getRunsByTicketKey,
   createMergeRequestForRun,
   rejectPublish,
   respondToRun,
@@ -379,6 +380,12 @@ export function registerServerRoutes(app: FastifyInstance) {
     });
     reply.status(201);
     return run;
+  });
+
+  // === Tickets ===
+  app.get<{ Params: { key: string } }>("/v1/tickets/:key/runs", async (request) => {
+    await ensureArcheReady();
+    return getRunsByTicketKey(request.params.key);
   });
 
   // === Repositories ===

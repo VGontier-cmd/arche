@@ -1,4 +1,4 @@
-import type { DashboardSnapshot, DashboardTimelineItem, OrchestratorConfigView, RepoRule, Repository, RunDetailSnapshot } from "../types";
+import type { DashboardRun, DashboardSnapshot, DashboardTimelineItem, OrchestratorConfigView, RepoRule, Repository, RunDetailSnapshot } from "../types";
 
 export async function fetchSnapshot(
   runId?: string | null,
@@ -51,6 +51,14 @@ export async function postRespond(
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || res.statusText);
   }
+}
+
+// === Ticket History ===
+
+export async function fetchTicketRuns(ticketKey: string): Promise<DashboardRun[]> {
+  const res = await fetch(`/v1/tickets/${encodeURIComponent(ticketKey)}/runs`);
+  if (!res.ok) throw new Error(`Ticket history fetch failed: ${res.statusText}`);
+  return res.json();
 }
 
 // === Manual Run ===

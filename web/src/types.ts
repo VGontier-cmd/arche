@@ -46,6 +46,12 @@ export type DashboardCredentialEnvStatus = {
   jira: boolean;
 };
 
+export type ReviewFinding = {
+  title: string;
+  body: string;
+  file?: string | null;
+};
+
 export type DashboardRun = {
   id: string;
   source: string;
@@ -59,7 +65,10 @@ export type DashboardRun = {
   currentRole: string | null;
   currentCycle: number;
   planMarkdown: string | null;
+  planRisks: string[];
   pendingQuestion: string | null;
+  latestFindings: ReviewFinding[];
+  latestReviewSummary: string | null;
   branchName: string | null;
   mrUrl: string | null;
   summary: string | null;
@@ -202,6 +211,7 @@ export type DashboardSnapshot = {
   jiraBaseUrl: string | null;
   repositoryCount: number;
   ruleCount: number;
+  autoCreateMr: boolean;
   summary: DashboardSummary;
   services: DashboardServiceStatus;
   systemStats: DashboardSystemStats;

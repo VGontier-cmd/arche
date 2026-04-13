@@ -14,12 +14,18 @@ const statusColors: Record<string, string> = {
   publish_rejected: "bg-[#3c1116] text-[#f85149]",
 };
 
+const ACTIVE_STATUSES = new Set(["executing", "planning", "reviewing", "running"]);
+
 export function StatusBadge({ status }: { status: string }) {
   const colors = statusColors[status] ?? statusColors.pending;
+  const isActive = ACTIVE_STATUSES.has(status);
   return (
     <span
-      className={`inline-block px-2 py-0.5 rounded-[10px] text-[10px] font-semibold uppercase tracking-wide whitespace-nowrap ${colors}`}
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-[10px] text-[10px] font-semibold uppercase tracking-wide whitespace-nowrap ${colors}`}
     >
+      {isActive && (
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-current animate-pulse shrink-0" />
+      )}
       {status}
     </span>
   );

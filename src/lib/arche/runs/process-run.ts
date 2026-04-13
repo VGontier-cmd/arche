@@ -40,6 +40,7 @@ import type {
 import { ensureDirectory, parseCommand } from "../utils";
 import type { WorkerActivity, WorkerStatus } from "../workers";
 import { withRunOwnershipHeartbeat } from "./heartbeat";
+import { createMergeRequestForRun } from "./run-approval-actions";
 
 type RunProcessingServices = {
   config: OrchestratorConfig;
@@ -504,6 +505,7 @@ async function pushApprovedRun(
     issue: JiraIssue;
     git: GitManager;
     workerId: string;
+    config: OrchestratorConfig;
   },
   deps: RunProcessDeps,
 ) {
@@ -543,6 +545,18 @@ async function pushApprovedRun(
     `branch ${input.run.branchName} pushed`,
   );
   await deps.transitionRun(input.run.id, "pushed");
+
+  if (input.config.workflow.auto_create_mr) {
+    try {
+      await createMergeRequestForRun(input.run.id);
+      await deps.appendSystemRunLog(input.run.id, "auto-created merge/pull request");
+    } catch (err: unknown) {
+      await deps.appendSystemRunLog(
+        input.run.id,
+        `auto MR creation failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
 }
 
 function resolveRepositoryCommandPolicies(
@@ -643,9 +657,10 @@ async function runPlannerPhase(input: {
     currentRole: "planner",
   });
 
-  const trackedFiles = await input.services.git.trackedFiles(
-    input.worktreePath,
-  );
+  const [trackedFiles, recentCommits] = await Promise.all([
+    input.services.git.trackedFiles(input.worktreePath),
+    input.services.git.getRecentCommits(input.worktreePath).catch(() => [] as string[]),
+  ]);
   const plannerProfile = resolveRoleProfile(
     input.run,
     "planner",
@@ -666,6 +681,7 @@ async function runPlannerPhase(input: {
       requirePublishApproval:
         input.services.config.workflow.require_publish_approval,
       latestHumanResponse: input.run.latestHumanResponse ?? null,
+      recentCommits,
     }),
     profile: plannerProfile,
     workerId: input.workerId,
@@ -977,7 +993,12 @@ async function handleRunProcessingFailure(input: {
   if (input.error instanceof CancelledError) {
     await input.jira
       .commentIssue(input.run.ticketKey, `Run cancelled: ${message}`)
-      .catch(() => undefined);
+      .catch((err: unknown) => {
+        void input.deps.appendSystemRunLog(
+          input.runId,
+          `Jira comment failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
     await input.deps.transitionRun(
       input.runId,
       "cancelled",
@@ -997,7 +1018,12 @@ async function handleRunProcessingFailure(input: {
   } else {
     await input.jira
       .commentIssue(input.run.ticketKey, `Run failed: ${message}`)
-      .catch(() => undefined);
+      .catch((err: unknown) => {
+        void input.deps.appendSystemRunLog(
+          input.runId,
+          `Jira comment failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
     await input.deps.transitionRun(
       input.runId,
       "failed",
@@ -1231,6 +1257,7 @@ export async function processRunWithDeps(
               issue,
               git,
               workerId,
+              config,
             },
             deps,
           );

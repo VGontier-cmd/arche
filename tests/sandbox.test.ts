@@ -80,6 +80,7 @@ describe("SandboxManager", () => {
         mode: "plan_execute_review",
         require_plan_approval: true,
         require_publish_approval: true,
+        auto_create_mr: false,
       },
       executors: {
         defaults: {
