@@ -3,19 +3,23 @@ import { join } from "node:path";
 
 import { archePackageRootDir } from "../cli-helpers";
 
-const ARCHE_BANNER = [
-  " ______     ______     ______     __  __     ______    ",
-  "/\\  __ \\   /\\  == \\   /\\  ___\\   /\\ \\_\\ \\   /\\  ___\\   ",
-  "\\ \\  __ \\  \\ \\  __<   \\ \\ \\____  \\ \\  __ \\  \\ \\  __\\   ",
-  " \\ \\_\\ \\_\\  \\ \\_\\ \\_\\  \\ \\_____\\  \\ \\_\\ \\_\\  \\ \\_____\\ ",
-  "  \\/_/\\/_/   \\/_/ /_/   \\/_____/   \\/_/\\/_/   \\/_____/ ",
-].join("\n");
-
-// ANSI color codes
-const DIM = "\x1b[2m";
-const CYAN = "\x1b[36m";
 const RESET = "\x1b[0m";
 const BOLD = "\x1b[1m";
+const COLORS = {
+  purple: "\x1b[35m",
+  blue: "\x1b[34m",
+  cyan: "\x1b[36m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+} as const;
+
+const ARCHE_BANNER_LINES = [
+  "      _                 _      ",
+  "     / \   _ __  _ __  | |__   ",
+  "    / _ \ | '_ \| '_ \ | '_ \  ",
+  "   / ___ \| | | | | | || | | | ",
+  "  /_/   \_\\_| |_|_| |_||_| |_| ",
+].join("\n");
 
 let bannerPrinted = false;
 let cachedVersion: string | null = null;
@@ -32,8 +36,28 @@ function getVersion(): string {
   return cachedVersion!;
 }
 
+function colorizeBanner(text: string) {
+  const letters = [COLORS.purple, COLORS.blue, COLORS.cyan, COLORS.green, COLORS.yellow];
+  const letterColors = new Map<string, string>([
+    ["A", COLORS.purple],
+    ["r", COLORS.blue],
+    ["c", COLORS.cyan],
+    ["h", COLORS.green],
+    ["e", COLORS.yellow],
+  ]);
+
+  return text
+    .split("")
+    .map((char) => {
+      if (char === "\n") return char;
+      if (char === " ") return char;
+      return `${letterColors.get(char) ?? letters[char.charCodeAt(0) % letters.length]}${char}${RESET}`;
+    })
+    .join("");
+}
+
 export function renderArcheBanner() {
-  return ARCHE_BANNER;
+  return ARCHE_BANNER_LINES;
 }
 
 export function printArcheBanner(stream: NodeJS.WritableStream = process.stderr) {
@@ -43,9 +67,9 @@ export function printArcheBanner(stream: NodeJS.WritableStream = process.stderr)
 
   const version = getVersion();
   const info = [
-    `${CYAN}${ARCHE_BANNER}${RESET}`,
-    `${DIM}  ${BOLD}Arche${RESET}${DIM} v${version} — Self-hosted AI dev agent orchestrator${RESET}`,
-    `${DIM}  node ${process.version} | ${process.platform} ${process.arch}${RESET}`,
+    `${colorizeBanner(ARCHE_BANNER_LINES)}`,
+    `${BOLD}${COLORS.cyan}Arche${RESET} ${COLORS.yellow}v${version}${RESET} ${COLORS.purple}—${RESET} Self-hosted AI dev agent orchestrator`,
+    `${COLORS.blue}node${RESET} ${process.version} ${COLORS.purple}|${RESET} ${process.platform} ${process.arch}`,
     "",
   ].join("\n");
 
