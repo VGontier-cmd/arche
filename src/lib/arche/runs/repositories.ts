@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+
 import { asc, eq, or } from "drizzle-orm";
 
 import { db, withSqliteWriteRetry } from "../../db/client";
@@ -6,6 +9,47 @@ import type { RepositoryUpdateInput, RepoRuleUpdateInput } from "../contracts";
 import { ExternalServiceError, NotFoundError } from "../errors";
 import { makeId } from "../utils";
 import { presentRepoRule } from "./presenters";
+
+/**
+ * Resolves the effective agent instructions for a run:
+ * 1. Reads .arche/instructions.md from the worktree (file in repo takes precedence).
+ * 2. Falls back to the repository.instructions DB field.
+ * Returns null if neither is present.
+ */
+/**
+ * Resolves the list of extra tools enabled for a run.
+ * Reads .arche/tools.json from the worktree first, falls back to repository.enabledTools in DB.
+ */
+export async function resolveRepoExtraTools(
+  repository: RepositoryRow,
+  worktreePath: string,
+): Promise<string[]> {
+  const filePath = join(worktreePath, ".arche", "tools.json");
+  try {
+    const raw = await readFile(filePath, "utf8");
+    const content = JSON.parse(raw) as { extra_tools?: unknown };
+    if (Array.isArray(content.extra_tools)) {
+      return content.extra_tools.filter((t): t is string => typeof t === "string");
+    }
+  } catch {
+    // File absent or invalid — fall through
+  }
+  return repository.enabledTools ?? [];
+}
+
+export async function resolveRepoInstructions(
+  repository: RepositoryRow,
+  worktreePath: string,
+): Promise<string | null> {
+  const filePath = join(worktreePath, ".arche", "instructions.md");
+  try {
+    const content = await readFile(filePath, "utf8");
+    if (content.trim()) return content.trim();
+  } catch {
+    // File does not exist — fall through to DB value
+  }
+  return repository.instructions ?? null;
+}
 
 export async function listRepositories() {
   return db.select().from(repositories).orderBy(asc(repositories.createdAt));

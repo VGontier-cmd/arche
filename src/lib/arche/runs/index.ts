@@ -8,7 +8,8 @@ export {
   presentRunTask,
   presentRepoRule,
 } from "./presenters";
-export { listRuns, listExecutionProfiles, getRunDetail, getRunById, getRunsByTicketKey, exportRunAsMarkdown } from "./run-queries";
+export { listRuns, listExecutionProfiles, getRunDetail, getRunById, getRunsByTicketKey, exportRunAsMarkdown, getMetricsSummary, getCostEstimateForRun } from "./run-queries";
+export type { MetricsSummary, RepoMetrics, CostEstimate } from "./run-queries";
 export {
   listRunLogs,
   listRunLogsPage,

@@ -1,21 +1,30 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { OpenRouter } from "@openrouter/sdk";
+import { maxCost, stepCountIs } from "@openrouter/sdk/lib/stop-conditions";
+
 import { getConfig, type OrchestratorConfig } from "../config";
 import type { RepositoryRow, RunRow } from "../db/schema";
-import { CancelledError, ExternalServiceError } from "./errors";
+import { ExternalServiceError } from "./errors";
+import { buildExtraTools } from "./extra-tools";
+import { createExecutorTools, extractHumanInputCall } from "./executor-tools";
 import { GitManager } from "./git";
-import { redactText, truncateText } from "./logging";
 import {
   OpenRouterSdkProvider,
+  aggregateUsage,
   extractLastThinking,
   type ProviderAttempt,
   type ProviderMessage,
+  type ProviderUsage,
 } from "./provider";
+import { computeCostFromUsage } from "./cost";
+import { fetchOpenRouterModels, type OpenRouterModel } from "./openrouter-proxy";
 import {
-  executorActionSchemaHint,
   plannerRoleOutputSchema,
   plannerSchemaHint,
+  researcherRoleOutputSchema,
+  researcherSchemaHint,
   reviewerRoleOutputSchema,
   reviewerSchemaHint,
 } from "./role-schemas";
@@ -32,10 +41,9 @@ import type {
   RunTaskStatus,
   RunTaskStrategy,
 } from "./types";
-import { ensureDirectory, isArgvAllowed, parseCommand } from "./utils";
+import { ensureDirectory } from "./utils";
 import type { WorkerActivity, WorkerStatus } from "./workers";
 
-const RUN_MESSAGE_LIMIT = 1200;
 const VALIDATION_FINDINGS_LIMIT = 12;
 
 export type RoleOutputByRole = {
@@ -89,6 +97,8 @@ export type WorkflowHooks = {
       status: Exclude<RunTaskStatus, "running">;
       summary?: string | null;
       outputJson?: Record<string, unknown> | null;
+      usage?: ProviderUsage | null;
+      estimatedCostUsd?: number | null;
     },
   ) => Promise<unknown>;
   recordRunCommand: (input: {
@@ -147,6 +157,36 @@ function formatFindings(findings: ReviewFinding[]) {
     .join("\n\n");
 }
 
+export function buildResearcherPrompt(input: {
+  issue: { key: string; title: string; description: string | null };
+  repository: RepositoryRow;
+  trackedFiles: string[];
+  repoInstructions: string | null;
+}) {
+  return [
+    "You are the researcher role for Arche.",
+    "Your job is to analyse the codebase and the ticket to produce a research report for the planner.",
+    "Do NOT modify any files. Read the repository structure and return a JSON report.",
+    `Ticket: ${input.issue.key} - ${input.issue.title}`,
+    "",
+    "Issue description:",
+    input.issue.description || "(empty)",
+    "",
+    `Repository: ${input.repository.name}`,
+    input.repoInstructions
+      ? `\nRepository conventions:\n${input.repoInstructions}\n`
+      : "",
+    "Repository tree:",
+    input.trackedFiles.slice(0, 400).join("\n") || "(empty repo)",
+    "",
+    "Identify: which files are likely impacted, key architectural patterns, external dependencies, and risks before implementation.",
+    "You MUST return a JSON object with exactly this structure:",
+    researcherSchemaHint,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 export function buildPlannerPrompt(input: {
   issue: JiraIssue;
   repository: RepositoryRow;
@@ -156,6 +196,8 @@ export function buildPlannerPrompt(input: {
   requirePublishApproval: boolean;
   latestHumanResponse: string | null;
   recentCommits: string[];
+  repoInstructions: string | null;
+  researchFindings: string | null;
 }) {
   return [
     "You are the planner role for Arche.",
@@ -167,6 +209,12 @@ export function buildPlannerPrompt(input: {
     input.issue.description || "(empty)",
     "",
     `Repository: ${input.repository.name}`,
+    input.repoInstructions
+      ? `\nRepository instructions (team conventions — follow these exactly when planning):\n${input.repoInstructions}\n`
+      : "",
+    input.researchFindings
+      ? `\nResearch findings (auto-generated context — use to inform your proposals):\n${input.researchFindings}\n`
+      : "",
     `Allowed commands for later execution: ${input.allowedCommands.join(", ") || "(none)"}`,
     `Validation commands: ${input.validationCommands.join(", ") || "(none)"}`,
     `Publish approval required: ${input.requirePublishApproval ? "yes" : "no"}`,
@@ -180,7 +228,11 @@ export function buildPlannerPrompt(input: {
     input.latestHumanResponse
       ? `Latest human response to a previous question:\n${input.latestHumanResponse}\n`
       : "",
-    "Return a concrete implementation plan, explicit risks, and open questions. Set needsHumanInput=true only if you cannot safely continue planning.",
+    "Return EXACTLY 3 plan proposals covering different trade-offs:",
+    "- conservative: minimal changes, lowest risk, focused scope",
+    "- balanced: complete implementation, moderate risk",
+    "- thorough: comprehensive solution with tests and edge cases",
+    "Set needsHumanInput=true (with a question) ONLY if you cannot safely plan without clarification.",
     "",
     "You MUST return a JSON object with exactly this structure:",
     plannerSchemaHint,
@@ -199,6 +251,7 @@ export function buildExecutorPrompt(input: {
   findings: ReviewFinding[];
   diffExcerpt: string;
   latestHumanResponse: string | null;
+  repoInstructions: string | null;
 }) {
   return [
     "You are the executor role for Arche.",
@@ -207,6 +260,9 @@ export function buildExecutorPrompt(input: {
     `Execution cycle: ${input.cycle}`,
     `Ticket: ${input.issue.key} - ${input.issue.title}`,
     `Repository: ${input.repository.name}`,
+    input.repoInstructions
+      ? `\nRepository instructions (team conventions — follow these exactly when implementing):\n${input.repoInstructions}\n`
+      : "",
     "",
     "Approved plan:",
     input.plan.planMarkdown,
@@ -231,9 +287,6 @@ export function buildExecutorPrompt(input: {
     "Do not redefine scope. Do NOT ask for human input unless you are completely blocked and cannot proceed — e.g. missing credentials, missing access, or a fundamental ambiguity in the plan that prevents any progress. Never ask for confirmation of work you can verify yourself (diffs, file contents, test results). If in doubt, proceed autonomously.",
     "",
     "IMPORTANT: You MUST implement the plan by calling write_file to create or modify files. Reading files alone is NOT implementation. Do not call finish until you have written all the files required by the plan.",
-    "",
-    "You MUST return a JSON action object. Valid formats:",
-    executorActionSchemaHint,
   ]
     .filter(Boolean)
     .join("\n");
@@ -247,6 +300,7 @@ export function buildReviewerPrompt(input: {
   validationFindings: ReviewFinding[];
   latestHumanResponse: string | null;
   cycle: number;
+  repoInstructions: string | null;
 }) {
   return [
     "You are the reviewer role for Arche.",
@@ -255,6 +309,9 @@ export function buildReviewerPrompt(input: {
     `Review cycle: ${input.cycle}`,
     `Ticket: ${input.issue.key} - ${input.issue.title}`,
     `Repository: ${input.repository.name}`,
+    input.repoInstructions
+      ? `\nRepository instructions (conventions the implementation must follow — flag any violation as a finding):\n${input.repoInstructions}\n`
+      : "",
     "",
     "Approved plan:",
     input.plan.planMarkdown,
@@ -278,23 +335,82 @@ export function buildReviewerPrompt(input: {
     .join("\n");
 }
 
-function buildRoleMessages(prompt: string): ProviderMessage[] {
+function buildRoleMessages(
+  prompt: string,
+  images?: Array<{ url: string }>,
+): ProviderMessage[] {
   return [
     { role: "system", content: "You are Arche. Follow the user instructions exactly and return only JSON." },
-    { role: "user", content: prompt },
+    {
+      role: "user",
+      content: prompt,
+      ...(images && images.length > 0
+        ? { images: images.map((i) => ({ type: "image_url" as const, url: i.url })) }
+        : {}),
+    },
   ];
 }
 
-function createProvider(profile: ResolvedExecutionProfile, worktreePath?: string) {
+/**
+ * Best-effort cost computation: looks up pricing via OpenRouter, multiplies
+ * by usage. Returns null if pricing cannot be resolved (network down, model
+ * not in catalog, missing API key) — the caller falls back to leaving the
+ * cost unset rather than blocking the run.
+ */
+async function safeComputeCost(
+  usage: ProviderUsage | null | undefined,
+  modelId: string,
+  apiKeyEnv: string,
+): Promise<number | null> {
+  if (!usage) return null;
+  const apiKey = process.env[apiKeyEnv];
+  if (!apiKey) return null;
+  try {
+    const models: OpenRouterModel[] = await fetchOpenRouterModels(apiKey);
+    const breakdown = computeCostFromUsage(usage, modelId, models);
+    return breakdown.totalCostUsd;
+  } catch {
+    return null;
+  }
+}
+
+function extractUsageFromResponse(response: unknown): ProviderUsage | null {
+  if (!response || typeof response !== "object") return null;
+  const usage = (response as { usage?: { inputTokens?: number; outputTokens?: number; cachedTokens?: number; cacheReadInputTokens?: number } }).usage;
+  if (!usage) return null;
+  return {
+    promptTokens: usage.inputTokens ?? 0,
+    completionTokens: usage.outputTokens ?? 0,
+    cachedTokens: usage.cachedTokens ?? usage.cacheReadInputTokens,
+  };
+}
+
+function createProvider(
+  profile: ResolvedExecutionProfile,
+  worktreePath?: string,
+  role?: string,
+  runId?: string,
+) {
   return new OpenRouterSdkProvider({
     worktreePath,
     modelName: profile.model,
+    fallbackModel: profile.fallback_model ?? null,
     baseUrl: profile.base_url,
     apiKeyEnv: profile.api_key_env,
     temperature: profile.temperature,
     timeoutMs: profile.timeout_seconds * 1000,
     thinkingEnabled: profile.thinking_enabled,
     thinkingBudgetTokens: profile.thinking_budget_tokens,
+    role,
+    // Forward live SDK deltas to the dashboard's per-run agent stream so the
+    // "Agent typing…" panel lights up during planner / reviewer / researcher
+    // turns, not just the executor.
+    onStreamEvent: runId
+      ? async (ev) => {
+          const { notifyAgentEvent } = await import("./dashboard/events");
+          notifyAgentEvent(runId, ev);
+        }
+      : undefined,
   });
 }
 
@@ -311,58 +427,6 @@ async function writeProviderArtifacts(
   await writeFile(responseArtifactPath, responseText, "utf8");
   return { attemptsArtifactPath, responseArtifactPath };
 }
-
-function summarizeProviderAction(action: RoleAction) {
-  if (action.action === "read_files") {
-    const targets =
-      action.files?.map((file) => file.path) ??
-      action.paths ??
-      [];
-    return `Requested file reads for ${targets.slice(0, 5).join(", ")}${targets.length > 5 ? ", ..." : ""}`;
-  }
-  if (action.action === "run_command") {
-    return `Requested command: ${action.command}`;
-  }
-  if (action.action === "write_file") {
-    return `Writing file: ${action.path}`;
-  }
-  if (action.action === "delete_file") {
-    return `Deleting file: ${action.path}`;
-  }
-  if (action.action === "apply_patch") {
-    return "Requested a patch application.";
-  }
-  if (action.action === "finish") {
-    return `Finished the run: ${action.summary}`;
-  }
-  return `Requested human input: ${action.question}`;
-}
-
-function summarizeObservation(observation: unknown) {
-  if (Array.isArray(observation)) {
-    return `Observation returned ${observation.length} item(s).`;
-  }
-  if (observation && typeof observation === "object") {
-    if ("error" in observation && typeof observation.error === "string") {
-      return observation.error;
-    }
-    if ("returncode" in observation && typeof observation.returncode === "number") {
-      const stdoutLength =
-        "stdout" in observation && typeof observation.stdout === "string" ? observation.stdout.length : 0;
-      const stderrLength =
-        "stderr" in observation && typeof observation.stderr === "string" ? observation.stderr.length : 0;
-      return `Command completed with exit code ${observation.returncode} (stdout ${stdoutLength} chars, stderr ${stderrLength} chars).`;
-    }
-    if ("result" in observation && typeof observation.result === "string") {
-      return `Tool result: ${observation.result}`;
-    }
-  }
-  const serialized = JSON.stringify(observation);
-  return serialized ? truncateText(serialized, RUN_MESSAGE_LIMIT) : "Observation updated.";
-}
-
-type RoleAction = ExecutorAction;
-type ExecutorAction = Awaited<ReturnType<OpenRouterSdkProvider["completeAction"]>>["action"];
 
 async function createRoleTask(
   hooks: WorkflowHooks,
@@ -390,6 +454,8 @@ export async function runStructuredRole<T extends "planner" | "reviewer">(input:
   role: T;
   cycle: number;
   prompt: string;
+  /** Multimodal image attachments (e.g. Jira ticket screenshots) for the planner. */
+  images?: Array<{ url: string }>;
   profile: ResolvedExecutionProfile;
   workerId: string;
   hooks: WorkflowHooks;
@@ -420,8 +486,8 @@ export async function runStructuredRole<T extends "planner" | "reviewer">(input:
   );
 
   try {
-    const provider = createProvider(input.profile);
-    const messages = buildRoleMessages(input.prompt);
+    const provider = createProvider(input.profile, undefined, input.role, input.run.id);
+    const messages = buildRoleMessages(input.prompt, input.images);
     const result =
       input.role === "planner"
         ? await provider.completeStructured(messages, plannerRoleOutputSchema, plannerSchemaHint)
@@ -436,6 +502,7 @@ export async function runStructuredRole<T extends "planner" | "reviewer">(input:
     const needsHumanInput =
       input.role === "planner" ? Boolean((output as PlannerRoleOutput).needsHumanInput) : false;
 
+    const taskCost = await safeComputeCost(result.usage, input.profile.model, input.profile.api_key_env);
     await input.hooks.completeTask(task.id, {
       status: needsHumanInput ? "needs_human_input" : "completed",
       summary:
@@ -443,6 +510,8 @@ export async function runStructuredRole<T extends "planner" | "reviewer">(input:
           ? (output as PlannerRoleOutput).planMarkdown
           : (output as ReviewerRoleOutput).summary,
       outputJson: output as Record<string, unknown>,
+      usage: result.usage,
+      estimatedCostUsd: taskCost,
     });
     await input.hooks.appendRunEvent(input.run.id, `provider.${input.role}.artifacts`, {
       cycle: input.cycle,
@@ -486,6 +555,8 @@ export async function runExecutorPatchLoop(input: {
   hooks: WorkflowHooks;
   /** When true, the executor MUST write at least one file — reviewer findings are pending. */
   hasPendingFindings: boolean;
+  /** Optional extra tools (web_search, fetch_url) resolved from .arche/tools.json */
+  extraToolNames?: string[];
 }): Promise<RoleOutputResult<"executor">> {
   const config = await getConfig();
   const artifactsPath = buildTaskArtifactsPath(input.run, "executor", input.cycle);
@@ -496,307 +567,370 @@ export async function runExecutorPatchLoop(input: {
     profile: input.profile,
     artifactsPath,
   });
-  const provider = createProvider(input.profile, input.worktreePath);
+
+  const provider = createProvider(input.profile, input.worktreePath, "executor", input.run.id);
   const sandbox = new SandboxManager(config);
   const git = new GitManager(config);
   const repositoryTree = (await git.trackedFiles(input.worktreePath)).slice(0, 400);
-  const messages: ProviderMessage[] = [
-    {
-      role: "system",
-      content: [
-        "You are the executor role for Arche — a coding agent that IMPLEMENTS approved plans by writing code.",
-        "Your job is to produce working code changes that fulfill the approved plan. You MUST write or modify files.",
-        "",
-        "## Workflow",
-        "1. Read the relevant source files to understand current code (use read_files).",
-        "2. Implement the changes described in the approved plan by writing files (use write_file).",
-        "3. Optionally run commands to verify your changes (use run_command).",
-        "4. When ALL planned changes are implemented and written to disk, call finish.",
-        "",
-        "## Critical rules",
-        "- You MUST call write_file (or delete_file/apply_patch) at least once before calling finish.",
-        "- Do NOT call finish if you have only read files — reading is preparation, not implementation.",
-        "- Each write_file must contain the COMPLETE file content (not a partial snippet).",
-        "- Do not publish or push changes — Arche handles that after you finish.",
-        "- Do not ask to list files; the repository tree is already provided below.",
-        "- Return exactly one JSON object per step. No markdown, no commentary, just JSON.",
-        "",
-        "Valid JSON action formats:",
-        executorActionSchemaHint,
-      ].join("\n"),
-    },
-    {
-      role: "user",
-      content: `${input.prompt}\n\nRepository tree:\n${repositoryTree.join("\n") || "(empty repo)"}`,
-    },
-  ];
+
+  const extraTools = buildExtraTools(input.extraToolNames ?? [], {
+    fetchUrlTimeoutMs: config.worker.fetch_url_timeout_ms,
+    webSearchTimeoutMs: config.worker.web_search_timeout_ms,
+  });
+  const { tools: builtinTools, state } = createExecutorTools({
+    provider,
+    sandbox,
+    git,
+    config,
+    run: input.run,
+    cycle: input.cycle,
+    workerId: input.workerId,
+    repository: input.repository,
+    worktreePath: input.worktreePath,
+    sandboxId: input.sandboxId,
+    hooks: input.hooks,
+    hasPendingFindings: input.hasPendingFindings,
+  });
+  const tools = [...builtinTools, ...extraTools];
+
+  const systemPrompt = [
+    "You are the executor role for Arche — a coding agent that IMPLEMENTS approved plans by writing code.",
+    "Your job is to produce working code changes that fulfill the approved plan. You MUST write or modify files.",
+    "",
+    "## Workflow",
+    "1. Read the relevant source files to understand current code (use read_files).",
+    "2. Implement the changes described in the approved plan by writing files (use write_file).",
+    "3. Optionally run commands to verify your changes (use run_command).",
+    "4. When ALL planned changes are implemented and written to disk, call finish.",
+    "",
+    "## Critical rules",
+    "- You MUST call write_file (or delete_file/apply_patch) at least once before calling finish.",
+    "- Do NOT call finish if you have only read files — reading is preparation, not implementation.",
+    "- Each write_file must contain the COMPLETE file content (not a partial snippet).",
+    "- Do not publish or push changes — Arche handles that after you finish.",
+    "- Do not ask to list files; the repository tree is already provided below.",
+  ].join("\n");
 
   await input.hooks.setWorkerPhase(input.workerId, input.run, {
-    status: "busy",
-    activity: "executing",
+    status: "waiting",
+    activity: "waiting_provider",
     currentStep: input.cycle,
   });
   await input.hooks.appendRunEvent(input.run.id, "run_task.executor.started", {
     cycle: input.cycle,
     profileName: input.profile.name,
     modelName: input.profile.model,
-    strategy: "patch_loop",
+    strategy: "tool_loop",
   });
   await input.hooks.appendSystemRunLog(
     input.run.id,
     `starting executor cycle ${input.cycle} with profile ${input.profile.name}`,
   );
 
-  await ensureDirectory(artifactsPath);
+  const apiKey = process.env[input.profile.api_key_env];
+  if (!apiKey) {
+    throw new ExternalServiceError(
+      `Missing API key environment variable referenced by ${input.profile.api_key_env}`,
+    );
+  }
+  const isAnthropic = input.profile.model.startsWith("anthropic/");
+  const temperature =
+    input.profile.thinking_enabled && isAnthropic
+      ? 1.0
+      : typeof input.profile.temperature === "number"
+        ? input.profile.temperature
+        : 0.1;
 
-  let filesMutated = 0;
-  let emptyFinishRetries = 0;
-  let validationRetries = 0;
-  const MAX_EMPTY_FINISH_RETRIES = 2;
-  const MAX_VALIDATION_RETRIES = 3;
+  const client = new OpenRouter({ apiKey, serverURL: input.profile.base_url });
+
+  // Pre-fetch pricing once so onTurnEnd can compute incremental cost without
+  // hitting the OpenRouter models endpoint on every turn. Best-effort: if it
+  // fails we just don't enforce the cost cap (stop condition stays false).
+  let pricingModels: OpenRouterModel[] | null = null;
+  try {
+    pricingModels = await fetchOpenRouterModels(apiKey);
+  } catch {
+    pricingModels = null;
+  }
+
+  const stopConditions = [
+    stepCountIs(input.profile.max_actions),
+    () => state.finishResult !== null,
+    // Cumulative cost cap. Use the SDK's built-in maxCost when configured —
+    // it reads usage.cost from each step's API response, so it's the
+    // authoritative figure as far as OpenRouter is concerned. Our own
+    // `state.estimatedCostUsd` (computed in onTurnEnd from pricing × tokens)
+    // remains useful for the dashboard but no longer drives the stop.
+    ...(input.profile.max_run_cost_usd && input.profile.max_run_cost_usd > 0
+      ? [maxCost(input.profile.max_run_cost_usd)]
+      : []),
+  ];
+
+  const sdkResult = client.callModel(
+    {
+      model: input.profile.model,
+      instructions: systemPrompt,
+      input: `${input.prompt}\n\nRepository tree:\n${repositoryTree.join("\n") || "(empty repo)"}`,
+      temperature,
+      tools,
+      stopWhen: stopConditions,
+      // Pre-execution gate for destructive shell commands. The allowlist on
+      // `run_command` already blocks anything outside the configured set, but
+      // this is a second-line defense: even when an operator widens the
+      // allowlist (e.g. to permit `rm` for cleanup scripts), require explicit
+      // human approval before the SDK executes those calls. The SDK pauses on
+      // the tool call and surfaces it back via the response object so the run
+      // can transition to needs_human_input via our existing extractor.
+      requireApproval: async (toolCall) => {
+        if (toolCall.name !== "run_command") return false;
+        const args = toolCall.arguments as { command?: string } | undefined;
+        const cmd = typeof args?.command === "string" ? args.command : "";
+        return /\b(rm|sudo|curl|wget|chmod\s+777|dd\s+if|:\(\)\s*\{\s*:\|:&\s*\};:)/i.test(cmd);
+      },
+      // Check cancellation at the start of each tool-execution round.
+      onTurnStart: async () => {
+        await input.hooks.ensureNotCancelled(input.run.id);
+        await input.hooks.setWorkerPhase(input.workerId, input.run, {
+          status: "waiting",
+          activity: "waiting_provider",
+        });
+      },
+      // Accumulate per-turn cost so the maxCost stop condition can fire mid-loop.
+      // The SDK gives us the completed response after each turn — we extract
+      // its usage and add the dollar cost to the running total.
+      onTurnEnd: async (_ctx, turnResponse) => {
+        if (!pricingModels) return;
+        const turnUsage = extractUsageFromResponse(turnResponse);
+        if (!turnUsage) return;
+        const breakdown = computeCostFromUsage(turnUsage, input.profile.model, pricingModels);
+        state.estimatedCostUsd += breakdown.totalCostUsd;
+      },
+    },
+    {
+      headers: {
+        "HTTP-Referer": "https://github.com/anthropics/arche",
+        "X-Title": "Arche-executor",
+      },
+      timeoutMs: input.profile.timeout_seconds * 1000,
+      retries: { strategy: "none" },
+    },
+  );
+
+  // Concurrent consumer: forward streaming SDK events to the dashboard's
+  // per-run agent-stream channel so the UI can render the model "typing" in
+  // real time (text deltas, tool calls, preliminary tool results) instead of
+  // staring at a spinner until getResponse() resolves at the end.
+  const agentStreamPump = (async () => {
+    try {
+      const { notifyAgentEvent } = await import("./dashboard/events");
+      for await (const ev of sdkResult.getFullResponsesStream()) {
+        // The SDK emits a wide union — we only cherry-pick the events that
+        // map cleanly onto our dashboard's "agent typing" view.
+        const t = (ev as { type: string }).type;
+        if (t === "response.output_text.delta") {
+          notifyAgentEvent(input.run.id, { type: "text_delta", delta: (ev as { delta: string }).delta });
+        } else if (t === "response.reasoning_summary_text.delta") {
+          notifyAgentEvent(input.run.id, { type: "reasoning_delta", delta: (ev as { delta: string }).delta });
+        } else if (t === "response.function_call_arguments.delta") {
+          notifyAgentEvent(input.run.id, { type: "tool_call_args_delta", delta: (ev as { delta: string }).delta });
+        } else if (t === "tool.preliminary_result") {
+          const e = ev as { toolCallId: string; result: unknown };
+          notifyAgentEvent(input.run.id, { type: "tool_preliminary", toolCallId: e.toolCallId, result: e.result });
+        }
+      }
+      notifyAgentEvent(input.run.id, { type: "done" });
+    } catch {
+      // Non-fatal — the main getResponse() still drives the workflow.
+    }
+  })();
 
   try {
-    for (let step = 0; step < input.profile.max_actions; step += 1) {
-      await input.hooks.ensureNotCancelled(input.run.id);
-      await input.hooks.setWorkerPhase(input.workerId, input.run, {
-        status: "waiting",
-        activity: "waiting_provider",
-        currentStep: step + 1,
-      });
+    const response = await sdkResult.getResponse();
+    await agentStreamPump.catch(() => undefined);
 
-      const result = await provider.completeAction(messages, executorActionSchemaHint);
-      const artifactFiles = await writeProviderArtifacts(
-        artifactsPath,
-        `executor-cycle-${input.cycle}-step-${step + 1}`,
-        result.attempts,
-        result.responseText,
-      );
+    // Save full response as artifact (best-effort — observability only, must not fail the run).
+    try {
+      await ensureDirectory(artifactsPath);
+      const artifactPath = join(artifactsPath, `executor-cycle-${input.cycle}-response.json`);
+      await writeFile(artifactPath, JSON.stringify(response, null, 2), "utf8");
       await input.hooks.appendRunEvent(input.run.id, "provider.executor.artifacts", {
         cycle: input.cycle,
-        step: step + 1,
         profileName: input.profile.name,
-        attemptsArtifactPath: artifactFiles.attemptsArtifactPath,
-        responseArtifactPath: artifactFiles.responseArtifactPath,
-        attemptCount: result.attempts.length,
+        responseArtifactPath: artifactPath,
       });
-      await input.hooks.appendRunMessage(input.run.id, "assistant", "executor", result.responseText, extractLastThinking(result.attempts));
-      const action = result.action;
-      await input.hooks.appendRunEvent(input.run.id, "provider.action_received", {
-        cycle: input.cycle,
-        step: step + 1,
-        action: action.action,
-      });
-      await input.hooks.appendRunMessage(
+    } catch (artifactError) {
+      await input.hooks.appendSystemRunLog(
         input.run.id,
-        "assistant",
-        "action",
-        summarizeProviderAction(action),
+        `warning: failed to save executor artifact: ${artifactError instanceof Error ? artifactError.message : "unknown"}`,
       );
-
-      let observation: unknown;
-      if (action.action === "read_files") {
-        observation = await provider.readFiles(action);
-      } else if (action.action === "run_command") {
-        const allowedCommands =
-          input.repository.allowedCommands.length > 0
-            ? input.repository.allowedCommands
-            : config.defaults.allowed_commands;
-        let parsedCommand: ReturnType<typeof parseCommand> | null = null;
-        try {
-          parsedCommand = parseCommand(action.command);
-        } catch (error) {
-          observation = { error: error instanceof Error ? error.message : "Command parsing failed" };
-        }
-
-        if (!parsedCommand) {
-          // Observation already set.
-        } else if (!isArgvAllowed(parsedCommand.argv, allowedCommands)) {
-          observation = { error: `Command is not allowed: ${parsedCommand.normalized}` };
-          await input.hooks.appendRunEvent(input.run.id, "provider.command_rejected", {
-            cycle: input.cycle,
-            step: step + 1,
-            command: parsedCommand.normalized,
-          });
-        } else {
-          await input.hooks.setWorkerPhase(input.workerId, input.run, {
-            status: "busy",
-            activity: "running_command",
-            currentStep: step + 1,
-          });
-          const commandResult = await sandbox.run(
-            input.sandboxId,
-            parsedCommand.argv,
-            config.worker.max_run_seconds * 1000,
-          );
-          await input.hooks.recordRunCommand({
-            runId: input.run.id,
-            phase: "executor",
-            result: commandResult,
-          });
-          observation = {
-            returncode: commandResult.returncode,
-            stdout: truncateText(redactText(commandResult.stdout), 8000),
-            stderr: truncateText(redactText(commandResult.stderr), 8000),
-          };
-        }
-      } else if (action.action === "write_file") {
-        try {
-          observation = await provider.writeFile(action.path, action.content);
-          filesMutated++;
-        } catch (error) {
-          observation = { error: error instanceof Error ? error.message : "File write failed" };
-        }
-      } else if (action.action === "delete_file") {
-        try {
-          observation = await provider.deleteFile(action.path);
-          filesMutated++;
-        } catch (error) {
-          observation = { error: error instanceof Error ? error.message : "File delete failed" };
-        }
-      } else if (action.action === "apply_patch") {
-        try {
-          await git.applyPatch(input.worktreePath, action.patch);
-          observation = { result: "patch_applied" };
-          filesMutated++;
-        } catch (error) {
-          observation = { error: error instanceof Error ? error.message : "Patch application failed" };
-        }
-      } else if (action.action === "needs_human_input") {
-        const output: ExecutorRoleOutput = {
-          summary: "Executor requires human input.",
-          implementedPlanDelta: "No additional changes applied.",
-          needsHumanInput: true,
-          question: action.question,
-        };
-        await input.hooks.completeTask(task.id, {
-          status: "needs_human_input",
-          summary: output.summary,
-          outputJson: output as Record<string, unknown>,
-        });
-        await input.hooks.appendRunEvent(input.run.id, "run_task.executor.completed", {
-          cycle: input.cycle,
-          needsHumanInput: true,
-        });
-        return {
-          taskId: task.id,
-          artifactsPath,
-          output,
-        };
-      } else {
-        // finish action — validate that code was actually written
-        if (filesMutated === 0 && emptyFinishRetries < MAX_EMPTY_FINISH_RETRIES) {
-          emptyFinishRetries++;
-          await input.hooks.appendSystemRunLog(
-            input.run.id,
-            `executor called finish without writing any files (attempt ${emptyFinishRetries}/${MAX_EMPTY_FINISH_RETRIES}), requesting implementation`,
-          );
-          await input.hooks.appendRunEvent(input.run.id, "provider.empty_finish_rejected", {
-            cycle: input.cycle,
-            step: step + 1,
-            attempt: emptyFinishRetries,
-          });
-          // Bounce back — tell the model to actually write code
-          const rejection = {
-            error: "You called finish but have not written any files yet. " +
-              "Your job is to IMPLEMENT the approved plan by calling write_file to create or modify source files. " +
-              "Read the plan again, identify the files that need to change, and use write_file to make those changes. " +
-              "Do not call finish until you have written at least one file.",
-          };
-          messages.push({ role: "assistant", content: JSON.stringify(action) });
-          messages.push({ role: "user", content: JSON.stringify(rejection) });
-          observation = undefined; // skip the normal observation push below
-          continue;
-        }
-
-        // Validation-gated finish — run validation suite before accepting finish
-        if (filesMutated > 0 && validationRetries < MAX_VALIDATION_RETRIES) {
-          const validationResult = await input.hooks.runValidation(input.sandboxId);
-          if (validationResult.findings.length > 0) {
-            validationRetries++;
-            await input.hooks.appendSystemRunLog(
-              input.run.id,
-              `validation failed after finish (attempt ${validationRetries}/${MAX_VALIDATION_RETRIES}), asking executor to fix`,
-            );
-            await input.hooks.appendRunEvent(input.run.id, "validation.findings_injected", {
-              cycle: input.cycle,
-              step: step + 1,
-              findingCount: validationResult.findings.length,
-              attempt: validationRetries,
-            });
-            messages.push({ role: "assistant", content: JSON.stringify(action) });
-            messages.push({
-              role: "user",
-              content: JSON.stringify({
-                status: "validation_failed",
-                findings: validationResult.findings,
-                instruction:
-                  "Validation failed. Fix the issues listed above, then call finish again.",
-              }),
-            });
-            observation = undefined;
-            continue;
-          }
-        }
-
-        // Hard-fail if reviewer findings were present but executor wrote nothing.
-        // Silently accepting a no-op finish with outstanding findings would cause
-        // the reviewer to see the same code again and request_changes indefinitely.
-        if (filesMutated === 0 && input.hasPendingFindings) {
-          throw new ExternalServiceError(
-            `Executor completed cycle ${input.cycle} without writing any files despite reviewer findings. ` +
-            `The reviewer's findings must be addressed by modifying files before calling finish.`,
-          );
-        }
-
-        const output: ExecutorRoleOutput = {
-          summary: action.summary,
-          implementedPlanDelta: action.implementedPlanDelta,
-          needsHumanInput: false,
-        };
-        await input.hooks.completeTask(task.id, {
-          status: "completed",
-          summary: output.summary,
-          outputJson: output as Record<string, unknown>,
-        });
-        await input.hooks.appendRunEvent(input.run.id, "run_task.executor.completed", {
-          cycle: input.cycle,
-          needsHumanInput: false,
-          filesMutated,
-        });
-        if (filesMutated === 0) {
-          await input.hooks.appendSystemRunLog(
-            input.run.id,
-            `warning: executor completed without writing any files after ${MAX_EMPTY_FINISH_RETRIES} retries`,
-          );
-        }
-        return {
-          taskId: task.id,
-          artifactsPath,
-          output,
-        };
-      }
-
-      await input.hooks.appendRunMessage(
-        input.run.id,
-        "tool",
-        "observation",
-        summarizeObservation(observation),
-      );
-      messages.push({ role: "assistant", content: JSON.stringify(action) });
-      messages.push({ role: "user", content: JSON.stringify(observation) });
     }
 
-    throw new ExternalServiceError("Executor action budget exhausted");
+    const executorUsage = extractUsageFromResponse(response);
+    const executorCost = await safeComputeCost(executorUsage, input.profile.model, input.profile.api_key_env);
+
+    // --- Successful finish ---
+    if (state.finishResult) {
+      const output: ExecutorRoleOutput = {
+        ...state.finishResult,
+        needsHumanInput: false,
+      };
+      await input.hooks.completeTask(task.id, {
+        status: "completed",
+        summary: output.summary,
+        outputJson: output as Record<string, unknown>,
+        usage: executorUsage,
+        estimatedCostUsd: executorCost,
+      });
+      await input.hooks.appendRunEvent(input.run.id, "run_task.executor.completed", {
+        cycle: input.cycle,
+        needsHumanInput: false,
+        filesMutated: state.filesMutated,
+      });
+      if (state.filesMutated === 0) {
+        await input.hooks.appendSystemRunLog(
+          input.run.id,
+          `warning: executor completed without writing any files after retries`,
+        );
+      }
+      return { taskId: task.id, artifactsPath, output };
+    }
+
+    // --- needs_human_input ---
+    const humanInputCall = extractHumanInputCall(
+      response.output as Array<{ type?: string; name?: string; arguments?: string }>,
+    );
+    if (humanInputCall) {
+      const output: ExecutorRoleOutput = {
+        summary: "Executor requires human input.",
+        implementedPlanDelta: "No additional changes applied.",
+        needsHumanInput: true,
+        question: humanInputCall.question,
+      };
+      await input.hooks.completeTask(task.id, {
+        status: "needs_human_input",
+        summary: output.summary,
+        outputJson: output as Record<string, unknown>,
+        usage: executorUsage,
+        estimatedCostUsd: executorCost,
+      });
+      await input.hooks.appendRunEvent(input.run.id, "run_task.executor.completed", {
+        cycle: input.cycle,
+        needsHumanInput: true,
+      });
+      return { taskId: task.id, artifactsPath, output };
+    }
+
+    // --- Budget exhausted: transition to needs_human_input instead of failing hard ---
+    const budgetMsg = state.filesMutated > 0
+      ? `The executor used all ${input.profile.max_actions} allowed steps. ${state.filesMutated} file(s) were modified — review the current diff and respond to continue (retry-executor will pick up from here), or adjust the plan.`
+      : `The executor used all ${input.profile.max_actions} allowed steps without modifying any files. The plan may be too large for the current budget. Consider splitting the ticket or increasing max_actions in orchestrator.yml, then retry.`;
+    const budgetOutput: ExecutorRoleOutput = {
+      summary: `Action budget exhausted (${input.profile.max_actions} steps used).`,
+      implementedPlanDelta: "Implementation incomplete — budget exhausted before finish.",
+      needsHumanInput: true,
+      question: budgetMsg,
+    };
+    await input.hooks.completeTask(task.id, {
+      status: "needs_human_input",
+      summary: budgetOutput.summary,
+      outputJson: budgetOutput as Record<string, unknown>,
+      usage: executorUsage,
+      estimatedCostUsd: executorCost,
+    });
+    await input.hooks.appendRunEvent(input.run.id, "run_task.executor.completed", {
+      cycle: input.cycle,
+      needsHumanInput: true,
+      budgetExhausted: true,
+    });
+    return { taskId: task.id, artifactsPath, output: budgetOutput };
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown task error";
+
+    // SDK quirk we have to work around:
+    //
+    //   The OpenRouter SDK always sends a "followup turn" to the model after
+    //   tool execution to give it a chance to produce a final assistant
+    //   message. Our `finish` tool intentionally tells the model "Execution
+    //   complete. Do not call any more tools." — which the well-behaved models
+    //   correctly obey by emitting nothing. The SDK then sees an empty
+    //   `output` array and throws `Invalid final response: empty or invalid
+    //   output` from `validateFinalResponse()`.
+    //
+    //   At this point `state.finishResult` is already set (the finish tool ran
+    //   and validation passed before we got here), so the executor *did*
+    //   succeed — only the SDK's terminal validation is unhappy. Convert this
+    //   into the same "successful finish" path we'd take if the SDK had been
+    //   permissive.
+    const isEmptyTerminalOutput =
+      message.includes("Invalid final response") ||
+      message.includes("empty or invalid output");
+    if (isEmptyTerminalOutput && state.finishResult) {
+      const output: ExecutorRoleOutput = {
+        ...state.finishResult,
+        needsHumanInput: false,
+      };
+      // state.estimatedCostUsd is updated in onTurnEnd, which fires after the
+      // empty followup turn — so this captures cost we DID pay even though
+      // the SDK threw on validation. Store it so the dashboard surfaces the
+      // real billable amount.
+      await input.hooks.completeTask(task.id, {
+        status: "completed",
+        summary: output.summary,
+        outputJson: output as Record<string, unknown>,
+        estimatedCostUsd: state.estimatedCostUsd > 0 ? state.estimatedCostUsd : null,
+      });
+      await input.hooks.appendRunEvent(input.run.id, "run_task.executor.completed", {
+        cycle: input.cycle,
+        needsHumanInput: false,
+        filesMutated: state.filesMutated,
+        sdkEmptyFollowup: true,
+      });
+      await input.hooks.appendSystemRunLog(
+        input.run.id,
+        "executor finished cleanly (SDK reported empty followup turn — expected after finish tool)",
+      );
+      return { taskId: task.id, artifactsPath, output };
+    }
+
+    // Empty terminal output WITHOUT a finish call — the model genuinely
+    // bailed mid-loop. Surface as needs_human_input with the partial diff so
+    // the user can decide whether to continue, retry, or cancel rather than
+    // burning the whole run on what may be a transient model glitch.
+    if (isEmptyTerminalOutput) {
+      const output: ExecutorRoleOutput = {
+        summary: "Executor stopped without producing a final response.",
+        implementedPlanDelta: state.filesMutated > 0
+          ? `Wrote ${state.filesMutated} file(s) but the model did not call finish. The current diff is partial.`
+          : "Model produced no output and no files were written.",
+        needsHumanInput: true,
+        question:
+          state.filesMutated > 0
+            ? `Executor wrote ${state.filesMutated} file(s) but did not call finish. Reply with guidance to continue, or cancel.`
+            : "Executor produced no output and wrote nothing. Reply with guidance or cancel the run.",
+      };
+      await input.hooks.completeTask(task.id, {
+        status: "needs_human_input",
+        summary: output.summary,
+        outputJson: output as Record<string, unknown>,
+        estimatedCostUsd: state.estimatedCostUsd > 0 ? state.estimatedCostUsd : null,
+      });
+      await input.hooks.appendRunEvent(input.run.id, "run_task.executor.completed", {
+        cycle: input.cycle,
+        needsHumanInput: true,
+        emptyResponse: true,
+      });
+      return { taskId: task.id, artifactsPath, output };
+    }
+
     await input.hooks.completeTask(task.id, {
       status: "failed",
-      summary: error instanceof Error ? error.message : "Unknown task error",
+      summary: message,
     });
     await input.hooks.appendRunEvent(input.run.id, "run_task.executor.failed", {
       cycle: input.cycle,
-      reason: error instanceof Error ? error.message : "Unknown task error",
+      reason: message,
     });
-    throw error instanceof CancelledError ? error : error;
+    throw error;
   }
 }
 

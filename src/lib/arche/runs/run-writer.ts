@@ -5,7 +5,8 @@ import { runEvents, runLogs, runMessages, runs, type RunRow } from "../../db/sch
 import { TERMINAL_RUN_STATES } from "../policy";
 import { redactText, truncateText } from "../logging";
 import type { RunStatus } from "../types";
-import { notifyDashboardChanged } from "../dashboard/events";
+import { notifyDashboardChanged, notifyRunActivity } from "../dashboard/events";
+import { sendSlackNotification } from "../notifications";
 import { RUN_LOG_MESSAGE_LIMIT, RUN_MESSAGE_LIMIT } from "./constants";
 import { sanitizePayload } from "./internal-utils";
 import { presentRunMessage } from "./presenters";
@@ -17,6 +18,7 @@ export async function appendRunEvent(runId: string, type: string, payload: Recor
     payload: sanitizePayload(payload),
   }));
   notifyDashboardChanged();
+  notifyRunActivity(runId);
 }
 
 export async function appendRunLog(runId: string, stream: string, message: string) {
@@ -66,6 +68,7 @@ export async function appendRunMessage(
   );
 
   notifyDashboardChanged();
+  notifyRunActivity(runId);
   return presentRunMessage(message);
 }
 
@@ -97,5 +100,7 @@ export async function transitionRun(
     db.update(runs).set(base).where(eq(runs.id, runId)).returning(),
   );
   await appendRunEvent(runId, `run.${status}`, payload);
+  const { getConfig } = await import("../../config");
+  sendSlackNotification(await getConfig(), run);
   return run;
 }

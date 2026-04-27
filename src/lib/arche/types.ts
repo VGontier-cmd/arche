@@ -42,6 +42,8 @@ export type JiraIssue = {
   labels: string[];
   assignee: string | null;
   projectKey: string | null;
+  /** Image attachments (screenshots) usable for multimodal model input. */
+  attachmentImages?: Array<{ filename: string; url: string; mimeType?: string }>;
   raw: Record<string, unknown>;
 };
 
@@ -83,12 +85,22 @@ export type ReviewFinding = {
   file?: string | null;
 };
 
-export type PlannerRoleOutput = {
+export type PlanProposal = {
+  approach: "conservative" | "balanced" | "thorough";
   planMarkdown: string;
   risks: string[];
   openQuestions: string[];
+  estimatedSteps: number;
+};
+
+export type PlannerRoleOutput = {
+  proposals?: PlanProposal[];
   needsHumanInput: boolean;
   question?: string | null;
+  // Fields used by executor/reviewer (populated from selected proposal)
+  planMarkdown?: string;
+  risks: string[];
+  openQuestions: string[];
 };
 
 export type ExecutorRoleOutput = {

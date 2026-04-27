@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 
 import { ensureArcheReady } from "../bootstrap";
 import { getConfig } from "../config";
+import { inferProvider } from "../git-utils";
 
 import { createRepository, createRepoRule } from "./runs";
 
@@ -74,7 +75,9 @@ async function promptRepositoryFields(
     }),
   ).trim();
 
-  const addGitlabId = guardPrompt(
+  const gitProvider = inferProvider(remoteUrl);
+
+  const addGitlabId = gitProvider === "gitlab" && guardPrompt(
     await p.confirm({
       message: "Set GitLab project ID now? (needed for merge requests via API)",
       initialValue: false,
@@ -93,7 +96,7 @@ async function promptRepositoryFields(
 
   return {
     name,
-    gitProvider: "gitlab" as const,
+    gitProvider,
     remoteUrl,
     localMirrorPath: resolve(localMirrorPath),
     defaultBranch,
@@ -101,6 +104,8 @@ async function promptRepositoryFields(
     gitlabProjectId,
     allowedCommands: [] as string[],
     validationCommands: [] as string[],
+    instructions: null,
+    enabledTools: null,
   };
 }
 

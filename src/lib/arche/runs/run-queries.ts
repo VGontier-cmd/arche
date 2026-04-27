@@ -1,4 +1,4 @@
-import { asc, desc, eq, gt, and } from "drizzle-orm";
+import { asc, desc, eq, gt, and, isNull, gte } from "drizzle-orm";
 
 import { getConfig } from "../../config";
 import { db } from "../../db/client";
@@ -22,9 +22,172 @@ import {
 } from "./presenters";
 import { DEFAULT_PAGE_LIMIT } from "./constants";
 
+const SUCCESS_STATUSES = new Set(["success", "pushed"]);
+const FAILURE_STATUSES = new Set(["failed", "cancelled", "publish_rejected"]);
+
+export type RepoMetrics = {
+  repoName: string;
+  totalRuns: number;
+  successfulRuns: number;
+  successRate: number;
+  totalCostUsd: number;
+  avgDurationMs: number;
+};
+
+export type MetricsSummary = {
+  totalRuns: number;
+  successfulRuns: number;
+  failedRuns: number;
+  successRate: number;
+  totalCostUsd: number;
+  avgCostUsd: number;
+  avgDurationMs: number;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  byRepo: RepoMetrics[];
+};
+
+export async function getMetricsSummary(since?: Date): Promise<MetricsSummary> {
+  const rows = await db
+    .select({
+      status: runs.status,
+      repoName: runs.repoName,
+      startedAt: runs.startedAt,
+      finishedAt: runs.finishedAt,
+      promptTokens: runs.promptTokens,
+      completionTokens: runs.completionTokens,
+      estimatedCostUsd: runs.estimatedCostUsd,
+    })
+    .from(runs)
+    .where(and(isNull(runs.archivedAt), since ? gte(runs.createdAt, since) : undefined));
+
+  let successfulRuns = 0;
+  let failedRuns = 0;
+  let totalCostUsd = 0;
+  let costCount = 0;
+  let totalDurationMs = 0;
+  let durationCount = 0;
+  let totalPromptTokens = 0;
+  let totalCompletionTokens = 0;
+
+  const repoMap = new Map<string, {
+    total: number;
+    success: number;
+    costUsd: number;
+    durationMs: number;
+    durationCount: number;
+  }>();
+
+  for (const row of rows) {
+    if (SUCCESS_STATUSES.has(row.status)) successfulRuns++;
+    if (FAILURE_STATUSES.has(row.status)) failedRuns++;
+
+    const cost = row.estimatedCostUsd ? Number(row.estimatedCostUsd) : 0;
+    if (cost > 0) {
+      totalCostUsd += cost;
+      costCount++;
+    }
+
+    if (row.startedAt && row.finishedAt) {
+      const dur = row.finishedAt.getTime() - row.startedAt.getTime();
+      totalDurationMs += dur;
+      durationCount++;
+    }
+
+    totalPromptTokens += row.promptTokens ?? 0;
+    totalCompletionTokens += row.completionTokens ?? 0;
+
+    const key = row.repoName ?? "(unknown)";
+    const entry = repoMap.get(key) ?? { total: 0, success: 0, costUsd: 0, durationMs: 0, durationCount: 0 };
+    entry.total++;
+    if (SUCCESS_STATUSES.has(row.status)) entry.success++;
+    entry.costUsd += cost;
+    if (row.startedAt && row.finishedAt) {
+      entry.durationMs += row.finishedAt.getTime() - row.startedAt.getTime();
+      entry.durationCount++;
+    }
+    repoMap.set(key, entry);
+  }
+
+  const finished = successfulRuns + failedRuns;
+  const byRepo: RepoMetrics[] = [...repoMap.entries()]
+    .map(([repoName, e]) => ({
+      repoName,
+      totalRuns: e.total,
+      successfulRuns: e.success,
+      successRate: e.total > 0 ? Math.round((e.success / e.total) * 100) : 0,
+      totalCostUsd: e.costUsd,
+      avgDurationMs: e.durationCount > 0 ? Math.round(e.durationMs / e.durationCount) : 0,
+    }))
+    .sort((a, b) => b.totalRuns - a.totalRuns);
+
+  return {
+    totalRuns: rows.length,
+    successfulRuns,
+    failedRuns,
+    successRate: finished > 0 ? Math.round((successfulRuns / finished) * 100) : 0,
+    totalCostUsd,
+    avgCostUsd: costCount > 0 ? totalCostUsd / costCount : 0,
+    avgDurationMs: durationCount > 0 ? Math.round(totalDurationMs / durationCount) : 0,
+    totalPromptTokens,
+    totalCompletionTokens,
+    byRepo,
+  };
+}
+
+export type CostEstimate = {
+  estimatedCostUsd: number | null;
+  basedOnRuns: number;
+  repoName: string | null;
+};
+
+export async function getCostEstimateForRun(runId: string): Promise<CostEstimate> {
+  const run = await getRunById(runId);
+  const repoName = run.repoName;
+  if (!repoName) return { estimatedCostUsd: null, basedOnRuns: 0, repoName: null };
+
+  // Fetch last 20 successful runs on the same repo that have a cost
+  const recentRuns = await db
+    .select({ estimatedCostUsd: runs.estimatedCostUsd })
+    .from(runs)
+    .where(and(
+      eq(runs.repoName, repoName),
+      isNull(runs.archivedAt),
+    ))
+    .orderBy(desc(runs.createdAt))
+    .limit(30);
+
+  const costs = recentRuns
+    .map((r) => (r.estimatedCostUsd ? Number(r.estimatedCostUsd) : null))
+    .filter((c): c is number => c !== null && c > 0)
+    .slice(0, 20);
+
+  if (costs.length === 0) return { estimatedCostUsd: null, basedOnRuns: 0, repoName };
+
+  // Median cost
+  const sorted = [...costs].sort((a, b) => a - b);
+  const median = sorted.length % 2 === 0
+    ? ((sorted[sorted.length / 2 - 1] ?? 0) + (sorted[sorted.length / 2] ?? 0)) / 2
+    : (sorted[Math.floor(sorted.length / 2)] ?? 0);
+
+  return { estimatedCostUsd: median, basedOnRuns: costs.length, repoName };
+}
+
 export async function listRuns() {
   const rows = await db.select().from(runs).orderBy(desc(runs.createdAt));
   return rows.map(presentRun);
+}
+
+// Escape characters that would corrupt markdown table cells or inline code spans.
+// Used for any user-provided values (titles, branch names, finding bodies) that
+// flow into the exported report.
+function escapeMarkdownInline(input: string): string {
+  return input.replace(/[|`<>]/g, (ch) => `\\${ch}`);
+}
+
+function escapeMarkdownBlock(input: string): string {
+  // Block content can keep most markdown but strip stray closing fences.
+  return input.replace(/```/g, "``\u200b`");
 }
 
 export async function exportRunAsMarkdown(runId: string): Promise<string> {
@@ -62,19 +225,19 @@ export async function exportRunAsMarkdown(runId: string): Promise<string> {
   const deletions = diffLines.filter((l) => l.startsWith("-") && !l.startsWith("---")).length;
 
   const lines: string[] = [
-    `# Run Report: ${run.ticketKey} — ${run.ticketTitle}`,
+    `# Run Report: ${escapeMarkdownInline(run.ticketKey)} — ${escapeMarkdownInline(run.ticketTitle)}`,
     "",
     `| Field | Value |`,
     `|---|---|`,
-    `| Status | \`${run.status}\` |`,
-    `| Repository | ${repoName} |`,
-    `| Branch | \`${run.branchName ?? "-"}\` |`,
+    `| Status | \`${escapeMarkdownInline(run.status)}\` |`,
+    `| Repository | ${escapeMarkdownInline(repoName)} |`,
+    `| Branch | \`${escapeMarkdownInline(run.branchName ?? "-")}\` |`,
     `| Started | ${startedAt} |`,
     `| Finished | ${finishedAt} |`,
     `| Duration | ${durationStr} |`,
     `| Cost | ${cost} |`,
     `| Tokens | ${tokens} |`,
-    run.mrUrl ? `| MR / PR | [${run.mrUrl}](${run.mrUrl}) |` : `| MR / PR | - |`,
+    run.mrUrl ? `| MR / PR | [${escapeMarkdownInline(run.mrUrl)}](${run.mrUrl}) |` : `| MR / PR | - |`,
     "",
   ];
 
@@ -82,7 +245,7 @@ export async function exportRunAsMarkdown(runId: string): Promise<string> {
     lines.push("## Plan", "", run.planMarkdown, "");
     if (Array.isArray(run.planRisks) && run.planRisks.length > 0) {
       lines.push("**Risks:**", "");
-      for (const risk of run.planRisks) lines.push(`- ${risk}`);
+      for (const risk of run.planRisks) lines.push(`- ${escapeMarkdownInline(risk)}`);
       lines.push("");
     }
   }
@@ -94,7 +257,7 @@ export async function exportRunAsMarkdown(runId: string): Promise<string> {
       `+${additions} −${deletions} lines`,
       "",
       "```diff",
-      run.diffExcerpt,
+      escapeMarkdownBlock(run.diffExcerpt),
       "```",
       "",
     );
@@ -103,7 +266,8 @@ export async function exportRunAsMarkdown(runId: string): Promise<string> {
   if (findings.length > 0) {
     lines.push("## Reviewer Findings", "");
     findings.forEach((f, i) => {
-      lines.push(`### ${i + 1}. ${f.title}${f.file ? ` \`(${f.file})\`` : ""}`);
+      const fileSuffix = f.file ? ` \`(${escapeMarkdownInline(f.file)})\`` : "";
+      lines.push(`### ${i + 1}. ${escapeMarkdownInline(f.title)}${fileSuffix}`);
       lines.push("", f.body, "");
     });
   }
@@ -113,7 +277,7 @@ export async function exportRunAsMarkdown(runId: string): Promise<string> {
   }
 
   if (run.failureReason) {
-    lines.push("## Failure", "", `> ${run.failureReason}`, "");
+    lines.push("## Failure", "", `> ${escapeMarkdownInline(run.failureReason)}`, "");
   }
 
   lines.push(`---`, ``, `*Exported from Arche on ${new Date().toISOString().slice(0, 10)}*`);

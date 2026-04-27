@@ -21,6 +21,8 @@ export const repositories = sqliteTable(
     gitlabProjectId: text("gitlab_project_id"),
     allowedCommands: text("allowed_commands", { mode: "json" }).$type<string[]>().notNull(),
     validationCommands: text("validation_commands", { mode: "json" }).$type<string[]>().notNull(),
+    instructions: text("instructions"),
+    enabledTools: text("enabled_tools", { mode: "json" }).$type<string[]>(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().defaultNow(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().defaultNow(),
   },
@@ -92,7 +94,9 @@ export const runs = sqliteTable(
     modelName: text("model_name"),
     currentRole: text("current_role"),
     currentCycle: integer("current_cycle").notNull().default(0),
+    researchSummary: text("research_summary"),
     planMarkdown: text("plan_markdown"),
+    planProposals: text("plan_proposals", { mode: "json" }).$type<import("../arche/role-schemas").PlanProposal[]>(),
     planRisks: text("plan_risks", { mode: "json" }).$type<string[]>().notNull().default([]),
     planOpenQuestions: text("plan_open_questions", { mode: "json" }).$type<string[]>().notNull().default([]),
     latestReviewSummary: text("latest_review_summary"),
@@ -272,6 +276,29 @@ export const runSchedules = sqliteTable("run_schedules", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().defaultNow(),
 });
 
+/**
+ * Live SDK stream events (text deltas, reasoning, tool-call args, etc.) that
+ * the worker emits while a run is in flight, so the server's SSE endpoint
+ * can replay them to the dashboard. SQLite is the IPC channel here because
+ * worker and server run as separate processes — the in-process EventEmitter
+ * never reaches across. Rows are pruned aggressively (> 5 min old) to keep
+ * the table small.
+ */
+export const agentStreamEvents = sqliteTable(
+  "agent_stream_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    runId: text("run_id")
+      .notNull()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    payload: text("payload", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().defaultNow(),
+  },
+  (table) => ({
+    runIdIdx: index("agent_stream_events_run_id_idx").on(table.runId, table.id),
+  }),
+);
+
 export type RepositoryRow = typeof repositories.$inferSelect;
 export type InferenceServerRow = typeof inferenceServers.$inferSelect;
 export type RepoRuleRow = typeof repoRules.$inferSelect;
@@ -282,4 +309,5 @@ export type RunCommandRow = typeof runCommands.$inferSelect;
 export type RunTaskRow = typeof runTasks.$inferSelect;
 export type RunMessageRow = typeof runMessages.$inferSelect;
 export type WorkerRow = typeof workers.$inferSelect;
+export type AgentStreamEventRow = typeof agentStreamEvents.$inferSelect;
 export type RunScheduleRow = typeof runSchedules.$inferSelect;

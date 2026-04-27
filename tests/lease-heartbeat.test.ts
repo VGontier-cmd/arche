@@ -115,6 +115,10 @@ vi.mock("../src/lib/arche/git", () => {
     async applyPatch() {
       return;
     }
+
+    async getRecentCommits() {
+      return [];
+    }
   }
 
   return { GitManager };
@@ -246,35 +250,50 @@ describe("run ownership heartbeat", () => {
               ? input.toString()
               : input.url;
 
-        if (url === "https://llm.example.com/v1/chat/completions") {
+        if (url === "https://llm.example.com/v1/responses") {
           await delay(providerDelayMs);
+          const text = JSON.stringify({
+            planMarkdown: "1. Wait for a slow provider\n2. Ensure the lease stays alive",
+            risks: [],
+            openQuestions: [],
+            needsHumanInput: false,
+          });
           return new Response(
             JSON.stringify({
-              id: "chatcmpl-test",
-              choices: [
-                {
-                  index: 0,
-                  finish_reason: "stop",
-                  message: {
-                    role: "assistant",
-                    content: JSON.stringify({
-                      planMarkdown: "1. Wait for a slow provider\n2. Ensure the lease stays alive",
-                      risks: [],
-                      openQuestions: [],
-                      needsHumanInput: false,
-                    }),
-                  },
-                },
-              ],
-              created: 1,
+              id: "resp_test",
+              object: "response",
+              created_at: 1700000000,
               model: "test-planner-model",
-              object: "chat.completion",
-              system_fingerprint: null,
+              status: "completed",
+              completed_at: 1700000000,
+              output: [{
+                id: "msg_test",
+                type: "message",
+                role: "assistant",
+                status: "completed",
+                content: [{ type: "output_text", text }],
+              }],
+              output_text: text,
+              error: null,
+              incomplete_details: null,
+              instructions: null,
+              metadata: null,
+              tools: [],
+              tool_choice: "auto",
+              parallel_tool_calls: false,
+              temperature: 0.1,
+              top_p: 1.0,
+              presence_penalty: 0,
+              frequency_penalty: 0,
+              usage: {
+                input_tokens: 10,
+                input_tokens_details: { cached_tokens: 0 },
+                output_tokens: 5,
+                output_tokens_details: { reasoning_tokens: 0 },
+                total_tokens: 15,
+              },
             }),
-            {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            },
+            { status: 200, headers: { "Content-Type": "application/json" } },
           );
         }
 

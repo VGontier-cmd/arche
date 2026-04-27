@@ -2,6 +2,7 @@
  * Proxy helpers for OpenRouter meta-APIs (models, credits).
  * All responses are cached to avoid hammering the API.
  */
+import { OpenRouter } from "@openrouter/sdk";
 
 export type OpenRouterModel = {
   id: string;
@@ -29,17 +30,25 @@ export async function fetchOpenRouterModels(apiKey: string): Promise<OpenRouterM
     return cachedModels.value;
   }
 
-  const res = await fetch("https://openrouter.ai/api/v1/models", {
-    headers: { Authorization: `Bearer ${apiKey}` },
-    signal: AbortSignal.timeout(8000),
-  });
-
-  if (!res.ok) {
-    throw new Error(`OpenRouter models API returned ${res.status}`);
-  }
-
-  const json = await res.json() as { data?: OpenRouterModel[] };
-  const models = json.data ?? [];
+  const client = new OpenRouter({ apiKey });
+  const response = await client.models.list(undefined, { timeoutMs: 8000 });
+  const models: OpenRouterModel[] = response.data.map((m) => ({
+    id: m.id,
+    name: m.name,
+    description: m.description ?? "",
+    context_length: m.contextLength ?? 0,
+    pricing: {
+      prompt: m.pricing.prompt,
+      completion: m.pricing.completion,
+    },
+    supported_parameters: m.supportedParameters as string[],
+    architecture: {
+      modality: m.architecture.modality,
+      tokenizer: m.architecture.tokenizer ?? "",
+      input_modalities: m.architecture.inputModalities as string[],
+      output_modalities: m.architecture.outputModalities as string[],
+    },
+  }));
 
   cachedModels = { value: models, expiresAt: now + 5 * 60_000 };
   return models;

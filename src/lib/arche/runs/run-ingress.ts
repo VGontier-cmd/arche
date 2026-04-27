@@ -32,13 +32,37 @@ export async function activeRunExists(ticketKey: string) {
 export async function createManualRunForTicket(input: {
   ticketKey: string;
   force?: boolean;
+  /** Inline ticket metadata to bypass Jira lookup — required when Jira is not configured. */
+  inline?: {
+    title: string;
+    description?: string;
+    projectKey?: string | null;
+    labels?: string[];
+    issueType?: string | null;
+  };
 }) {
   const jira = new JiraClient();
-  if (!jira.configured) {
-    throw new ExternalServiceError("Jira client is not configured");
+  let issue: JiraIssue;
+  if (input.inline) {
+    issue = normalizeIssue({
+      key: input.ticketKey,
+      fields: {
+        summary: input.inline.title,
+        description: input.inline.description ?? "",
+        status: { name: "In Progress" },
+        labels: input.inline.labels ?? [],
+        issuetype: input.inline.issueType ? { name: input.inline.issueType } : { name: "Task" },
+        project: { key: input.inline.projectKey ?? input.ticketKey.split("-")[0] ?? null },
+      },
+    });
+  } else {
+    if (!jira.configured) {
+      throw new ExternalServiceError(
+        "Jira client is not configured. Pass --title (and optionally --description) to create a manual run without Jira.",
+      );
+    }
+    issue = await jira.fetchIssue(input.ticketKey);
   }
-
-  const issue = await jira.fetchIssue(input.ticketKey);
   const config = await getConfig();
   const force = Boolean(input.force);
   const hasActiveRun = await activeRunExists(issue.key);

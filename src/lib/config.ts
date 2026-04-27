@@ -56,6 +56,9 @@ const defaultExecutorProfile = {
   temperature: 0.1,
   thinking_enabled: false,
   thinking_budget_tokens: 5000,
+  fallback_model: null as string | null,
+  max_run_cost_usd: null as number | null,
+  enable_prompt_caching: true,
 } as const;
 
 const defaultExecutorsConfig = {
@@ -79,6 +82,9 @@ const executorProfileSchema = z.object({
   temperature: z.number().min(0).max(2).default(defaultExecutorProfile.temperature),
   thinking_enabled: z.boolean().default(defaultExecutorProfile.thinking_enabled),
   thinking_budget_tokens: z.number().int().positive().default(defaultExecutorProfile.thinking_budget_tokens),
+  fallback_model: z.string().min(1).nullable().default(null),
+  max_run_cost_usd: z.number().positive().nullable().default(null),
+  enable_prompt_caching: z.boolean().default(defaultExecutorProfile.enable_prompt_caching),
 });
 
 const executorsConfigSchema = z
@@ -129,6 +135,8 @@ export const orchestratorConfigSchema = z.object({
     max_agent_steps: z.number().int().positive().default(8),
     max_run_seconds: z.number().int().positive().default(1200),
     human_input_timeout_hours: z.number().positive().default(24),
+    fetch_url_timeout_ms: z.number().int().positive().default(12_000),
+    web_search_timeout_ms: z.number().int().positive().default(10_000),
   }),
   policy: z.object({
     assignee: z.string().default("agent-dev"),
@@ -176,6 +184,25 @@ export const orchestratorConfigSchema = z.object({
     })
     .default(defaultWorkflowConfig),
   executors: executorsConfigSchema.default(defaultExecutorsConfig),
+  complexity_routing: z
+    .object({
+      enabled: z.boolean().default(false),
+      default: z.string().default("default"),
+      thresholds: z
+        .object({
+          low: z.object({ max_score: z.number().default(30), profile: z.string() }).optional(),
+          high: z.object({ min_score: z.number().default(70), profile: z.string() }).optional(),
+        })
+        .optional(),
+    })
+    .default({ enabled: false, default: "default" }),
+  notifications: z
+    .object({
+      slack_webhook_url: z.string().default(""),
+      slack_enabled: z.boolean().default(true),
+      browser_notifications_enabled: z.boolean().default(true),
+    })
+    .default({ slack_webhook_url: "", slack_enabled: true, browser_notifications_enabled: true }),
   bootstrap: z.object({
     repositories: z.array(z.record(z.string(), z.unknown())).default([]),
     repo_rules: z.array(z.record(z.string(), z.unknown())).default([]),
@@ -194,6 +221,8 @@ export const defaultConfig: OrchestratorConfig = {
     max_agent_steps: 8,
     max_run_seconds: 1200,
     human_input_timeout_hours: 24,
+    fetch_url_timeout_ms: 12_000,
+    web_search_timeout_ms: 10_000,
   },
   policy: {
     assignee: "agent-dev",
@@ -229,6 +258,15 @@ export const defaultConfig: OrchestratorConfig = {
         ...defaultExecutorProfile,
       },
     },
+  },
+  notifications: {
+    slack_webhook_url: "",
+    slack_enabled: true,
+    browser_notifications_enabled: true,
+  },
+  complexity_routing: {
+    enabled: false,
+    default: "default",
   },
   bootstrap: {
     repositories: [],

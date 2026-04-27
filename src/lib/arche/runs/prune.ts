@@ -145,6 +145,15 @@ export async function pruneRunHistory(options: { force?: boolean } = {}) {
     artifactCutoffMs,
   );
 
+  // Drop SDK stream events older than 5 minutes — they're transient deltas
+  // for the live dashboard panel, the timeline keeps the persistent record.
+  // Aggressive prune here keeps the agent_stream_events table small even
+  // after thousands of runs.
+  const streamEventCutoff = new Date(nowMs - 5 * 60_000);
+  await withSqliteWriteRetry(() => db.run(
+    sql`delete from agent_stream_events where created_at < ${streamEventCutoff.getTime()}`,
+  ));
+
   const worktreeRuns = await db
     .select({
       id: runs.id,

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Check, Copy } from "lucide-react";
 import type { DashboardRun } from "../types";
 import { formatCost, formatDuration, formatTime } from "../lib/format";
 
@@ -121,7 +122,11 @@ function Row({
             className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity text-[var(--fg3)] hover:text-[#58a6ff] shrink-0"
             title="Copy"
           >
-            {copied ? "✓" : "⎘"}
+            {copied ? (
+              <Check size={11} strokeWidth={2.5} className="text-[#3fb950]" aria-hidden="true" />
+            ) : (
+              <Copy size={11} strokeWidth={2} aria-hidden="true" />
+            )}
           </button>
         )}
       </span>

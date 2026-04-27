@@ -82,12 +82,32 @@ export function SchedulesView() {
   const handleEdit = (s: RunSchedule) => { setForm(scheduleToForm(s)); setModalMode("edit"); setEditingId(s.id); };
 
   const handleSubmit = async () => {
+    const trimmedLabel = form.label.trim();
+    const trimmedTicket = form.ticketKey.trim();
+    if (!trimmedLabel) {
+      toast.error("Label is required");
+      return;
+    }
+    if (!trimmedTicket) {
+      toast.error("Ticket key is required");
+      return;
+    }
+    const hour = Number(form.hour);
+    const minute = Number(form.minute);
+    if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
+      toast.error("Hour must be between 0 and 23");
+      return;
+    }
+    if (!Number.isInteger(minute) || minute < 0 || minute > 59) {
+      toast.error("Minute must be between 0 and 59");
+      return;
+    }
     const payload = {
-      label: form.label,
-      ticketKey: form.ticketKey,
+      label: trimmedLabel,
+      ticketKey: trimmedTicket,
       recurrence: form.recurrence,
-      hour: Number(form.hour),
-      minute: Number(form.minute),
+      hour,
+      minute,
       dayOfWeek: form.recurrence === "weekly" ? Number(form.dayOfWeek) : undefined,
       enabled: form.enabled,
     };

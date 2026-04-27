@@ -191,7 +191,7 @@ describe("dashboard read model", () => {
     await db
       .update(schema.workers)
       .set({
-        lastHeartbeatAt: new Date(now - 10_000),
+        lastHeartbeatAt: new Date(now - 70_000),
         status: "idle",
         activity: "polling",
       })
@@ -354,7 +354,7 @@ describe("dashboard read model", () => {
     ]);
     expect(snapshot.timeline[0]).toMatchObject({
       source: "message",
-      title: "assistant/action",
+      title: "Requested a patch application.",
     });
     expect(snapshot.timeline.at(-2)).toMatchObject({
       source: "event",
@@ -657,9 +657,10 @@ function makeSnapshot(
       {
         id: "message-1",
         source: "message",
+        kind: "action",
         timestamp: "2026-04-07T09:00:00.500Z",
-        title: "assistant/action",
-        detail: "Requested a patch application.",
+        title: "Requested a patch application.",
+        detail: null,
       },
       {
         id: "event-1",
@@ -752,6 +753,8 @@ function makeRun(
     leaseOwner: null,
     leaseExpiresAt: null,
     archivedAt: null,
+    researchSummary: null,
+    planProposals: null,
     startedAt: "2026-04-07T08:59:00.000Z",
     finishedAt: null,
     createdAt: "2026-04-07T08:58:00.000Z",

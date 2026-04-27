@@ -1,9 +1,21 @@
+import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 
 import type { OrchestratorConfig } from "../config";
 import { ExternalServiceError } from "./errors";
 import { formatCommandArgv, runCommand } from "./utils";
 import type { CommandResult } from "./utils";
+
+export type SandboxStreamEvent =
+  | { type: "started"; command: string }
+  | { type: "stdout"; chunk: string }
+  | { type: "stderr"; chunk: string };
+
+export type SandboxRunStreamResult = {
+  events: AsyncIterable<SandboxStreamEvent>;
+  /** Resolves to the final command result when the process exits. */
+  done: Promise<CommandResult>;
+};
 
 export class SandboxManager {
   constructor(private readonly config: OrchestratorConfig) {}
@@ -74,6 +86,82 @@ export class SandboxManager {
       timeout,
       label: formatCommandArgv(argv),
     });
+  }
+
+  /**
+   * Streaming variant: spawn `docker exec` and emit stdout/stderr chunks as
+   * they arrive so the model (via SDK preliminary results) and the dashboard
+   * timeline see live progress on long-running commands like `npm test`.
+   * Returns both an event iterable and a `done` promise that resolves with
+   * the final aggregated CommandResult — caller can pick whichever fits.
+   */
+  runStreaming(sandboxId: string, argv: string[], timeout: number): SandboxRunStreamResult {
+    if (argv.length === 0) {
+      throw new ExternalServiceError("Sandbox command argv must not be empty", "command_invalid");
+    }
+    const label = formatCommandArgv(argv);
+    const child = spawn("docker", ["exec", "-w", "/workspace", sandboxId, ...argv], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    const startedAt = Date.now();
+    const stdoutBuf: string[] = [];
+    const stderrBuf: string[] = [];
+
+    const queue: SandboxStreamEvent[] = [{ type: "started", command: label }];
+    let pushResolve: (() => void) | null = null;
+    let finished = false;
+
+    const push = (event: SandboxStreamEvent) => {
+      queue.push(event);
+      pushResolve?.();
+    };
+
+    child.stdout?.on("data", (data: Buffer) => {
+      const chunk = data.toString("utf8");
+      stdoutBuf.push(chunk);
+      push({ type: "stdout", chunk });
+    });
+    child.stderr?.on("data", (data: Buffer) => {
+      const chunk = data.toString("utf8");
+      stderrBuf.push(chunk);
+      push({ type: "stderr", chunk });
+    });
+
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+    }, timeout);
+
+    const done = new Promise<CommandResult>((resolveDone) => {
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        finished = true;
+        pushResolve?.();
+        resolveDone({
+          command: label,
+          returncode: typeof code === "number" ? code : 1,
+          stdout: stdoutBuf.join(""),
+          stderr: stderrBuf.join(""),
+          durationMs: Date.now() - startedAt,
+        });
+      });
+    });
+
+    const events: AsyncIterable<SandboxStreamEvent> = {
+      [Symbol.asyncIterator]: async function* () {
+        while (true) {
+          if (queue.length > 0) {
+            yield queue.shift()!;
+            continue;
+          }
+          if (finished) return;
+          await new Promise<void>((r) => { pushResolve = r; });
+          pushResolve = null;
+        }
+      },
+    };
+
+    return { events, done };
   }
 
   async destroy(sandboxId: string | null) {

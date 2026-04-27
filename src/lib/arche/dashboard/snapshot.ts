@@ -1,5 +1,7 @@
 import { cpus, loadavg, totalmem } from "node:os";
 
+import { OpenRouter } from "@openrouter/sdk";
+
 import { asc, count, desc, eq } from "drizzle-orm";
 
 import { getConfig, type OrchestratorConfig } from "../../config";
@@ -174,7 +176,9 @@ export async function getDashboardSnapshot(options: {
 } = {}): Promise<DashboardSnapshot> {
   const config = await getConfig();
   const nowMs = options.nowMs ?? Date.now();
-  const offlineThresholdMs = Math.max(5_000, config.worker.poll_interval_seconds * 3_000);
+  // Heartbeat fires every min(30s, leaseTtl/3). Threshold must exceed that interval.
+  const heartbeatIntervalMs = Math.min(30_000, Math.floor((config.worker.lease_ttl_seconds * 1000) / 3));
+  const offlineThresholdMs = Math.max(heartbeatIntervalMs * 2, config.worker.poll_interval_seconds * 3_000);
   const serverHost = process.env.ARCHE_SERVER_HOST?.trim() || "127.0.0.1";
   const serverPort = Number(process.env.ARCHE_SERVER_PORT || "8787");
   const serverUrl = `http://${serverHost}:${Number.isFinite(serverPort) ? serverPort : 8787}/health`;
@@ -343,7 +347,9 @@ export async function getDashboardListSnapshot(options: {
 } = {}): Promise<DashboardListSnapshot> {
   const config = await getConfig();
   const nowMs = options.nowMs ?? Date.now();
-  const offlineThresholdMs = Math.max(5_000, config.worker.poll_interval_seconds * 3_000);
+  // Heartbeat fires every min(30s, leaseTtl/3). Threshold must exceed that interval.
+  const heartbeatIntervalMs = Math.min(30_000, Math.floor((config.worker.lease_ttl_seconds * 1000) / 3));
+  const offlineThresholdMs = Math.max(heartbeatIntervalMs * 2, config.worker.poll_interval_seconds * 3_000);
   const serverHost = process.env.ARCHE_SERVER_HOST?.trim() || "127.0.0.1";
   const serverPort = Number(process.env.ARCHE_SERVER_PORT || "8787");
   const serverUrl = `http://${serverHost}:${Number.isFinite(serverPort) ? serverPort : 8787}/health`;
@@ -444,16 +450,13 @@ async function fetchOpenRouterCredits(config: OrchestratorConfig): Promise<numbe
     const apiKey = readSecretEnv(envName);
     if (!apiKey) continue;
     try {
-      const res = await fetch("https://openrouter.ai/api/v1/credits", {
-        headers: { Authorization: `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(3000),
-      });
-      if (!res.ok) break; // 403 = management key required — degrade gracefully
-      const json = await res.json() as { data?: { total_credits?: number; total_usage?: number } };
-      const available = (json.data?.total_credits ?? 0) - (json.data?.total_usage ?? 0);
+      const client = new OpenRouter({ apiKey });
+      const response = await client.credits.getCredits(undefined, { timeoutMs: 3000 });
+      const available = response.data.totalCredits - response.data.totalUsage;
       cachedCredits = { value: available, expiresAt: now + 60_000 };
       return available;
     } catch {
+      // 403 = management key required, or other error — degrade gracefully
       break;
     }
   }
@@ -495,7 +498,7 @@ function pickDefaultRunId(
   return inboxRows[0]?.id ?? activeRows[0]?.id ?? recentRows[0]?.id ?? null;
 }
 
-function deriveDashboardCredentialEnvStatus(
+export function deriveDashboardCredentialEnvStatus(
   config: OrchestratorConfig,
 ): DashboardCredentialEnvStatus {
   const keys = new Set<string>();

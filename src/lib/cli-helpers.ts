@@ -25,6 +25,10 @@ export function bundledEnvTemplatePath(): string {
   return join(archePackageRootDir(), "install", "env.default");
 }
 
+export function bundledSandboxDockerfilePath(): string {
+  return join(archePackageRootDir(), "install", "sandbox.Dockerfile");
+}
+
 export function printJson(value: unknown) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 }

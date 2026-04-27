@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchRunDetail, fetchSnapshot } from "../api/client";
 import type { DashboardRun, DashboardSnapshot } from "../types";
+import { useRunStream } from "./useRunStream";
 
 export type ConnectionState = "connecting" | "connected" | "disconnected";
 export type ConnectionInfo = { state: ConnectionState; reconnectAttempt: number };
@@ -45,6 +46,9 @@ export function useDashboard(initialRunId?: string | null, onError?: (message: s
   const selectedRunIdRef = useRef(selectedRunId);
   selectedRunIdRef.current = selectedRunId;
 
+  // Kept in a ref so useRunStream can call it without re-subscribing.
+  const fetchDetailsRef = useRef<(() => void) | null>(null);
+
   // Keep a stable ref so callbacks don't need to re-bind when the handler changes
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
@@ -52,6 +56,10 @@ export function useDashboard(initialRunId?: string | null, onError?: (message: s
   const prevRunStatusesRef = useRef<Map<string, string> | null>(null);
   const isInitialLoadRef = useRef(true);
   const reconnectAttemptRef = useRef(0);
+  // Dedup notifications: don't fire the same (runId, status) twice within
+  // NOTIFY_DEDUP_WINDOW_MS — protects against the SSE feed re-emitting an
+  // already-consumed transition after a reconnect.
+  const lastNotifiedRef = useRef<Map<string, { status: string; at: number }>>(new Map());
 
   // Request notification permission on mount
   useEffect(() => {
@@ -62,6 +70,7 @@ export function useDashboard(initialRunId?: string | null, onError?: (message: s
 
   // SSE for list data — stable connection, never depends on selectedRunId
   useEffect(() => {
+    const NOTIFY_DEDUP_WINDOW_MS = 5_000;
     reconnectAttemptRef.current = 0;
     setConnectionInfo({ state: "connecting", reconnectAttempt: 0 });
     const es = new EventSource("/v1/dashboard/sse");
@@ -124,16 +133,22 @@ export function useDashboard(initialRunId?: string | null, onError?: (message: s
         if (isInitialLoadRef.current) {
           isInitialLoadRef.current = false;
         } else if (prevRunStatusesRef.current) {
+          const now = Date.now();
           let notified = false;
           for (const run of allRuns) {
             if (
               NOTIFY_STATUSES.has(run.status) &&
               prevRunStatusesRef.current.get(run.id) !== run.status
             ) {
+              const last = lastNotifiedRef.current.get(run.id);
+              if (last && last.status === run.status && now - last.at < NOTIFY_DEDUP_WINDOW_MS) {
+                continue;
+              }
               new Notification(`Arche: ${NOTIFY_LABELS[run.status] || run.status}`, {
                 body: `${run.ticketKey}: ${run.ticketTitle || run.id}`,
                 tag: `arche-${run.id}-${run.status}`,
               });
+              lastNotifiedRef.current.set(run.id, { status: run.status, at: now });
               notified = true;
             }
           }
@@ -220,14 +235,23 @@ export function useDashboard(initialRunId?: string | null, onError?: (message: s
       }
     };
 
+    fetchDetailsRef.current = fetchDetails;
     fetchDetails();
     const pollTimer = setInterval(fetchDetails, 3_000);
 
     return () => {
       cancelled = true;
+      fetchDetailsRef.current = null;
       clearInterval(pollTimer);
     };
   }, [selectedRunId]);
+
+  // Subscribe to per-run SSE stream while the run is executing.
+  // Triggers an immediate detail re-fetch on activity instead of waiting 3 s.
+  const selectedRunStatus = snapshot?.selectedRun?.status ?? null;
+  useRunStream(selectedRunId, selectedRunStatus, () => {
+    fetchDetailsRef.current?.();
+  });
 
   const refresh = useCallback(async () => {
     try {

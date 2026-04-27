@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Repository } from "../types";
+import { splitLines } from "../lib/format";
 import {
   fetchRepositories,
   createRepository,
@@ -19,6 +20,7 @@ type FormData = {
   gitlabProjectId: string;
   allowedCommands: string;
   validationCommands: string;
+  instructions: string;
 };
 
 const emptyForm: FormData = {
@@ -31,6 +33,7 @@ const emptyForm: FormData = {
   gitlabProjectId: "",
   allowedCommands: "",
   validationCommands: "",
+  instructions: "",
 };
 
 function repoToForm(repo: Repository): FormData {
@@ -44,6 +47,7 @@ function repoToForm(repo: Repository): FormData {
     gitlabProjectId: repo.gitlabProjectId || "",
     allowedCommands: (repo.allowedCommands || []).join("\n"),
     validationCommands: (repo.validationCommands || []).join("\n"),
+    instructions: repo.instructions || "",
   };
 }
 
@@ -83,16 +87,27 @@ export function RepositoriesView() {
   };
 
   const handleSubmit = async () => {
+    const name = form.name.trim();
+    const remoteUrl = form.remoteUrl.trim();
+    if (!name) {
+      toast.error("Name is required");
+      return;
+    }
+    if (!remoteUrl) {
+      toast.error("Remote URL is required");
+      return;
+    }
     const payload = {
-      name: form.name,
+      name,
       gitProvider: form.gitProvider,
-      remoteUrl: form.remoteUrl,
+      remoteUrl,
       localMirrorPath: form.localMirrorPath,
       defaultBranch: form.defaultBranch,
       enabled: form.enabled,
       gitlabProjectId: form.gitlabProjectId || undefined,
-      allowedCommands: form.allowedCommands.split("\n").map((s) => s.trim()).filter(Boolean),
-      validationCommands: form.validationCommands.split("\n").map((s) => s.trim()).filter(Boolean),
+      allowedCommands: splitLines(form.allowedCommands),
+      validationCommands: splitLines(form.validationCommands),
+      instructions: form.instructions.trim() || null,
     };
     setSubmitting(true);
     try {
@@ -292,6 +307,14 @@ function RepoFormModal({
           </Field>
           <Field label="Validation Commands (one per line)">
             <textarea className={inputClass + " min-h-[60px] resize-y"} value={form.validationCommands} onChange={(e) => setField("validationCommands", e.target.value)} placeholder="pnpm lint&#10;pnpm typecheck" />
+          </Field>
+          <Field label="Agent Instructions (optional — team conventions, SOPs)">
+            <textarea
+              className={inputClass + " min-h-[80px] resize-y"}
+              value={form.instructions}
+              onChange={(e) => setField("instructions", e.target.value)}
+              placeholder={"Always use Tailwind for styling, never CSS modules.\nGo errors: wrap with fmt.Errorf.\nTests must cover the happy path and at least one error case."}
+            />
           </Field>
           <label className="flex items-center gap-2 text-xs text-[var(--fg2)] cursor-pointer">
             <input type="checkbox" checked={form.enabled} onChange={(e) => setField("enabled", e.target.checked)} className="accent-[#58a6ff]" />

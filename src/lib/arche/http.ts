@@ -1,3 +1,5 @@
+import { ZodError } from "zod";
+
 import {
   ArcheError,
   ConfigurationError,
@@ -25,6 +27,21 @@ export function routeErrorResponse(error: unknown) {
   }
   if (error instanceof EligibilityError) {
     return json({ error: error.message, code: error.code }, { status: 422 });
+  }
+  if (error instanceof ZodError) {
+    // Surface the first validation issue's path + message so the client knows
+    // which field is wrong instead of getting a generic 500.
+    const first = error.issues[0];
+    const path = first?.path?.join(".") || "<root>";
+    const message = first?.message ?? "Validation failed";
+    return json(
+      {
+        error: `${path}: ${message}`,
+        code: "validation_error",
+        issues: error.issues.map((issue) => ({ path: issue.path, message: issue.message })),
+      },
+      { status: 400 },
+    );
   }
   if (error instanceof ArcheError) {
     return json({ error: error.message, code: error.code }, { status: 400 });

@@ -1,6 +1,12 @@
 import { useCallback, useState } from "react";
 import type { DashboardSnapshot, Repository } from "../types";
-import { createRepository, createRepoRule, fetchRepositories, triggerManualRun } from "../api/client";
+import {
+  createRepository,
+  createRepoRule,
+  fetchRepositories,
+  saveSetupCredentials,
+  triggerManualRun,
+} from "../api/client";
 import { useToast } from "../context/ToastContext";
 
 type Step = "credentials" | "repository" | "rule" | "run";
@@ -27,13 +33,63 @@ function CheckItem({ ok, label }: { ok: boolean; label: string }) {
 export function SetupWizard({
   snapshot,
   onComplete,
+  onRefresh,
 }: {
   snapshot: DashboardSnapshot;
   onComplete: () => void;
+  onRefresh?: () => void | Promise<void>;
 }) {
   const toast = useToast();
   const [currentStep, setCurrentStep] = useState<Step>("credentials");
   const [submitting, setSubmitting] = useState(false);
+
+  // Credentials form
+  const [credForm, setCredForm] = useState({
+    openRouterKey: "",
+    githubToken: "",
+    gitlabToken: "",
+    gitlabBaseUrl: "https://gitlab.com",
+    jiraBaseUrl: "",
+    jiraEmail: "",
+    jiraApiToken: "",
+  });
+  const [showOptional, setShowOptional] = useState(false);
+
+  const handleCredentialsSubmit = useCallback(async () => {
+    setSubmitting(true);
+    try {
+      const payload: Record<string, string> = {};
+      if (credForm.openRouterKey.trim()) payload.openRouterKey = credForm.openRouterKey.trim();
+      if (credForm.githubToken.trim()) payload.githubToken = credForm.githubToken.trim();
+      if (credForm.gitlabToken.trim()) {
+        payload.gitlabToken = credForm.gitlabToken.trim();
+        if (credForm.gitlabBaseUrl.trim()) payload.gitlabBaseUrl = credForm.gitlabBaseUrl.trim();
+      }
+      if (credForm.jiraBaseUrl.trim() && credForm.jiraEmail.trim() && credForm.jiraApiToken.trim()) {
+        payload.jiraBaseUrl = credForm.jiraBaseUrl.trim();
+        payload.jiraEmail = credForm.jiraEmail.trim();
+        payload.jiraApiToken = credForm.jiraApiToken.trim();
+      }
+      if (Object.keys(payload).length === 0) {
+        toast.error("Enter at least one credential");
+        return;
+      }
+      await saveSetupCredentials(payload);
+      toast.success("Credentials saved");
+      setCredForm((f) => ({
+        ...f,
+        openRouterKey: "",
+        githubToken: "",
+        gitlabToken: "",
+        jiraApiToken: "",
+      }));
+      if (onRefresh) await onRefresh();
+    } catch (e) {
+      toast.error("Failed: " + (e instanceof Error ? e.message : e));
+    } finally {
+      setSubmitting(false);
+    }
+  }, [credForm, toast, onRefresh]);
 
   // Repository form
   const [repoForm, setRepoForm] = useState({
@@ -122,7 +178,7 @@ export function SetupWizard({
   const stepIndex = STEPS.findIndex((s) => s.key === currentStep);
 
   return (
-    <div className="flex-1 flex items-center justify-center p-8">
+    <div className="flex-1 flex items-center justify-center px-8 pt-20 pb-8">
       <div className="w-full max-w-lg">
         <h2 className="text-lg font-semibold text-[var(--color-base-content)] mb-1 text-center">
           Welcome to Arche
@@ -171,18 +227,130 @@ export function SetupWizard({
               <CheckItem ok={snapshot.credentialEnv.github} label="GitHub credentials (optional)" />
               <CheckItem ok={snapshot.credentialEnv.jira} label="Jira credentials (optional)" />
               <CheckItem ok={snapshot.summary.onlineWorkerCount > 0} label="Worker online" />
-              <div className="mt-4">
-                <button className="btn-primary" onClick={async () => {
-                  const repoList = await fetchRepositories();
-                  setRepos(repoList);
-                  if (repoList.length > 0) {
-                    setRuleForm((prev) => ({ ...prev, repositoryId: repoList[0].id }));
-                  }
-                  setCurrentStep("repository");
-                }}>
-                  Continue
+
+              {!snapshot.credentialEnv.openRouter && (
+                <p className="text-[11px] text-[#d29922] mt-3 leading-snug">
+                  OpenRouter key is required. Paste it below — it will be saved to <code>.arche/environment</code>.
+                </p>
+              )}
+
+              <form
+                onSubmit={(e) => { e.preventDefault(); handleCredentialsSubmit(); }}
+                className="flex flex-col gap-2.5 mt-4 pt-3 border-t border-[var(--border-color)]"
+              >
+                <div>
+                  <label className="block text-xs text-[var(--fg2)] mb-1">
+                    OpenRouter API key {snapshot.credentialEnv.openRouter && <span className="text-[#3fb950] text-[10px]">(already set — leave blank to keep)</span>}
+                  </label>
+                  <input
+                    className={inputClass}
+                    type="password"
+                    value={credForm.openRouterKey}
+                    onChange={(e) => setCredForm((f) => ({ ...f, openRouterKey: e.target.value }))}
+                    placeholder="sk-or-v1-…"
+                    autoComplete="off"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  className="text-[11px] text-[#58a6ff] hover:underline self-start"
+                  onClick={() => setShowOptional((v) => !v)}
+                >
+                  {showOptional ? "Hide" : "Show"} optional credentials (GitHub, GitLab, Jira)
                 </button>
-              </div>
+
+                {showOptional && (
+                  <div className="flex flex-col gap-2.5 pl-2 border-l-2 border-[var(--border-color)]">
+                    <div>
+                      <label className="block text-xs text-[var(--fg2)] mb-1">GitHub PAT (optional)</label>
+                      <input
+                        className={inputClass}
+                        type="password"
+                        value={credForm.githubToken}
+                        onChange={(e) => setCredForm((f) => ({ ...f, githubToken: e.target.value }))}
+                        placeholder="ghp_…"
+                        autoComplete="off"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs text-[var(--fg2)] mb-1">GitLab base URL</label>
+                        <input
+                          className={inputClass}
+                          value={credForm.gitlabBaseUrl}
+                          onChange={(e) => setCredForm((f) => ({ ...f, gitlabBaseUrl: e.target.value }))}
+                          placeholder="https://gitlab.com"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-[var(--fg2)] mb-1">GitLab token</label>
+                        <input
+                          className={inputClass}
+                          type="password"
+                          value={credForm.gitlabToken}
+                          onChange={(e) => setCredForm((f) => ({ ...f, gitlabToken: e.target.value }))}
+                          placeholder="glpat-…"
+                          autoComplete="off"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[var(--fg2)] mb-1">Jira base URL</label>
+                      <input
+                        className={inputClass}
+                        value={credForm.jiraBaseUrl}
+                        onChange={(e) => setCredForm((f) => ({ ...f, jiraBaseUrl: e.target.value }))}
+                        placeholder="https://yourco.atlassian.net"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs text-[var(--fg2)] mb-1">Jira email</label>
+                        <input
+                          className={inputClass}
+                          value={credForm.jiraEmail}
+                          onChange={(e) => setCredForm((f) => ({ ...f, jiraEmail: e.target.value }))}
+                          placeholder="you@yourco.com"
+                          autoComplete="off"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-[var(--fg2)] mb-1">Jira API token</label>
+                        <input
+                          className={inputClass}
+                          type="password"
+                          value={credForm.jiraApiToken}
+                          onChange={(e) => setCredForm((f) => ({ ...f, jiraApiToken: e.target.value }))}
+                          autoComplete="off"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-2 mt-2">
+                  <button type="submit" className="btn-default" disabled={submitting}>
+                    {submitting ? "Saving…" : "Save Credentials"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary ml-auto"
+                    disabled={!snapshot.credentialEnv.openRouter}
+                    title={snapshot.credentialEnv.openRouter ? "" : "Save an OpenRouter key first"}
+                    onClick={async () => {
+                      const repoList = await fetchRepositories();
+                      setRepos(repoList);
+                      if (repoList.length > 0) {
+                        setRuleForm((prev) => ({ ...prev, repositoryId: repoList[0].id }));
+                      }
+                      setCurrentStep("repository");
+                    }}
+                  >
+                    Continue
+                  </button>
+                </div>
+              </form>
             </div>
           )}
 
@@ -197,7 +365,17 @@ export function SetupWizard({
                 </div>
                 <div>
                   <label className="block text-xs text-[var(--fg2)] mb-1">Remote URL</label>
-                  <input className={inputClass} value={repoForm.remoteUrl} onChange={(e) => setRepoForm((f) => ({ ...f, remoteUrl: e.target.value }))} placeholder="git@gitlab.com:org/repo.git" required />
+                  <input
+                    className={inputClass}
+                    value={repoForm.remoteUrl}
+                    onChange={(e) => {
+                      const url = e.target.value;
+                      const detected = url.includes("github.com") ? "github" : "gitlab";
+                      setRepoForm((f) => ({ ...f, remoteUrl: url, gitProvider: detected }));
+                    }}
+                    placeholder="git@gitlab.com:org/repo.git"
+                    required
+                  />
                 </div>
                 <div>
                   <label className="block text-xs text-[var(--fg2)] mb-1">Local Mirror Path</label>

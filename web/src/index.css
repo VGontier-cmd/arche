@@ -168,13 +168,49 @@ a:hover {
   margin: 12px 0;
 }
 
-@keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateX(40px);
+/* Compact prose variant for the live agent stream panel — same styles as
+   arche-prose but tightened so 100+ tokens fit without dwarfing the rest of
+   the detail pane. */
+.arche-prose-sm {
+  font-size: 11px;
+  line-height: 1.5;
+}
+.arche-prose-sm h1 { font-size: 14px; }
+.arche-prose-sm h2 { font-size: 13px; }
+.arche-prose-sm h3 { font-size: 12px; }
+.arche-prose-sm h4 { font-size: 11px; }
+.arche-prose-sm h1, .arche-prose-sm h2, .arche-prose-sm h3, .arche-prose-sm h4 {
+  margin: 8px 0 4px;
+}
+.arche-prose-sm p { margin: 4px 0; }
+.arche-prose-sm ul, .arche-prose-sm ol { margin: 4px 0; padding-left: 16px; }
+.arche-prose-sm li { margin: 1px 0; }
+.arche-prose-sm code { font-size: 10px; padding: 0 3px; }
+.arche-prose-sm pre { padding: 6px; margin: 4px 0; }
+.arche-prose-sm pre code { font-size: 10px; }
+
+/* Disabled button states */
+.btn-primary:disabled,
+.btn-default:disabled,
+.btn-danger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Animations — respects prefers-reduced-motion */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(40px); }
+    to   { opacity: 1; transform: translateX(0); }
   }
-  to {
-    opacity: 1;
-    transform: translateX(0);
+  @keyframes fadeSlideIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes slideIn    { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes fadeSlideIn { from { opacity: 1; } to { opacity: 1; } }
 }

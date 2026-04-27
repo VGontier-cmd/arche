@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { OrchestratorConfigView, ExecutorProfile } from "../types";
 import { fetchConfig, updateConfig, fetchOpenRouterModels, type OpenRouterModel } from "../api/client";
 import { useToast } from "../context/ToastContext";
+import { splitLines } from "../lib/format";
 
 type SectionKey = "workflow" | "policy" | "worker" | "defaults" | "routing" | "git" | "executors";
 
@@ -247,14 +248,14 @@ export function SettingsView() {
                 <textarea
                   className={inputClass + " min-h-[60px] resize-y"}
                   value={((sectionForm as Record<string, unknown>).allowed_commands as string[]).join("\n")}
-                  onChange={(e) => updateField("allowed_commands", e.target.value.split("\n").map((s) => s.trim()).filter(Boolean))}
+                  onChange={(e) => updateField("allowed_commands", splitLines(e.target.value))}
                 />
               </Field>
               <Field label="Validation Commands (one per line)">
                 <textarea
                   className={inputClass + " min-h-[60px] resize-y"}
                   value={((sectionForm as Record<string, unknown>).validation_commands as string[]).join("\n")}
-                  onChange={(e) => updateField("validation_commands", e.target.value.split("\n").map((s) => s.trim()).filter(Boolean))}
+                  onChange={(e) => updateField("validation_commands", splitLines(e.target.value))}
                 />
               </Field>
             </div>

@@ -22,7 +22,7 @@ const state = {
   committedBranches: [] as string[],
   providerInvocations: [] as Array<{ role: string; cycle: number; modelName: string }>,
   executorCalls: 0,
-  executorNeedsWrite: true,
+  needsInputSent: false,
   reviewerCalls: 0,
 };
 
@@ -144,6 +144,10 @@ vi.mock("../src/lib/arche/git", () => {
     async applyPatch() {
       return;
     }
+
+    async getRecentCommits() {
+      return [];
+    }
   }
 
   return { GitManager };
@@ -178,29 +182,64 @@ vi.mock("../src/lib/arche/sandbox", () => {
   return { SandboxManager };
 });
 
-function providerResponse(content: string) {
-  return new Response(
-    JSON.stringify({
-      id: "chatcmpl-test",
-      choices: [
-        {
-          index: 0,
-          finish_reason: "stop",
-          message: {
-            role: "assistant",
-            content,
-          },
-        },
-      ],
-      created: 1,
-      model: "test-model",
-      object: "chat.completion",
-      system_fingerprint: null,
-    }),
-    {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
+/** Minimal required fields shared by all OpenResponses wire-format responses. */
+function baseResponseFields(output: unknown[], outputText: string) {
+  return {
+    id: "resp_test",
+    object: "response",
+    created_at: 1700000000,
+    model: "any",
+    status: "completed",
+    completed_at: 1700000000,
+    output,
+    output_text: outputText,
+    error: null,
+    incomplete_details: null,
+    instructions: null,
+    metadata: null,
+    tools: [],
+    tool_choice: "auto",
+    parallel_tool_calls: false,
+    temperature: 0.1,
+    top_p: 1.0,
+    presence_penalty: 0,
+    frequency_penalty: 0,
+    usage: {
+      input_tokens: 10,
+      input_tokens_details: { cached_tokens: 0 },
+      output_tokens: 5,
+      output_tokens_details: { reasoning_tokens: 0 },
+      total_tokens: 15,
     },
+  };
+}
+
+/** Build a minimal OpenResponses (non-streaming) JSON response with text content. */
+function providerResponse(text: string): Response {
+  return new Response(
+    JSON.stringify(baseResponseFields(
+      [{ id: "msg_test", type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text }] }],
+      text,
+    )),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}
+
+/** Build an OpenResponses response with function_call output items (executor tool calls). */
+function functionCallResponse(calls: Array<{ name: string; args: Record<string, unknown> }>): Response {
+  return new Response(
+    JSON.stringify(baseResponseFields(
+      calls.map((call, i) => ({
+        type: "function_call",
+        id: `call_${call.name}_${i}`,
+        call_id: `call_${call.name}_${i}`,
+        name: call.name,
+        arguments: JSON.stringify(call.args),
+        status: "completed",
+      })),
+      "",
+    )),
+    { status: 200, headers: { "Content-Type": "application/json" } },
   );
 }
 
@@ -213,7 +252,9 @@ async function parseProviderRequest(input: string | URL | Request, init?: Reques
         : "{}";
   return JSON.parse(rawBody) as {
     model: string;
-    messages?: Array<{ role?: string; content?: string }>;
+    input?: string | Array<Record<string, unknown>>;
+    instructions?: string;
+    tools?: unknown[];
   };
 }
 
@@ -223,13 +264,16 @@ function roleFromModel(modelName: string) {
   return "reviewer";
 }
 
-function cycleFromMessages(role: string, messages?: Array<{ role?: string; content?: string }>) {
-  if (role === "planner") {
-    return 0;
-  }
-  const userContent = [...(messages ?? [])].reverse().find((message) => message.role === "user")?.content ?? "";
+function cycleFromRequest(role: string, request: { input?: string | Array<Record<string, unknown>> }) {
+  if (role === "planner") return 0;
+  const text =
+    typeof request.input === "string"
+      ? request.input
+      : Array.isArray(request.input)
+        ? ((request.input.find((m) => m.role === "user")?.content as string | undefined) ?? "")
+        : "";
   const pattern = role === "executor" ? /Execution cycle:\s*(\d+)/ : /Review cycle:\s*(\d+)/;
-  const matched = userContent.match(pattern);
+  const matched = text.match(pattern);
   return matched ? Number(matched[1]) : 1;
 }
 
@@ -248,7 +292,7 @@ describe("workflow orchestration", () => {
     state.committedBranches = [];
     state.providerInvocations = [];
     state.executorCalls = 0;
-    state.executorNeedsWrite = true;
+    state.needsInputSent = false;
     state.reviewerCalls = 0;
 
     const configPath = join(workspace, "orchestrator.yml");
@@ -363,15 +407,11 @@ describe("workflow orchestration", () => {
             ? input.toString()
             : input.url;
 
-      if (url === "https://llm.example.com/v1/chat/completions") {
+      if (url === "https://llm.example.com/v1/responses") {
         const request = await parseProviderRequest(input, init);
         const role = roleFromModel(request.model);
-        const cycle = cycleFromMessages(role, request.messages);
-        state.providerInvocations.push({
-          role,
-          cycle,
-          modelName: request.model,
-        });
+        const cycle = cycleFromRequest(role, request);
+        state.providerInvocations.push({ role, cycle, modelName: request.model });
 
         if (role === "planner") {
           return providerResponse(
@@ -384,53 +424,51 @@ describe("workflow orchestration", () => {
           );
         }
 
-      if (role === "executor") {
-        if (state.scenario === "needs_input" && state.executorCalls === 0) {
-          state.executorCalls += 1;
-          state.executorNeedsWrite = true;
-          return providerResponse(
-            JSON.stringify({
-                action: "needs_human_input",
-                question:
-                  "Should the popup keep the 768px breakpoint behavior or switch to the mobile layout earlier?",
-            }),
-          );
-        }
+        if (role === "executor") {
+          // Initial call: input is a string (fresh callModel invocation).
+          if (typeof request.input === "string") {
+            if (state.scenario === "needs_input" && !state.needsInputSent) {
+              state.needsInputSent = true;
+              return functionCallResponse([{
+                name: "needs_human_input",
+                args: { question: "Should the popup keep the 768px breakpoint behavior or switch to the mobile layout earlier?" },
+              }]);
+            }
+            return functionCallResponse([{
+              name: "write_file",
+              args: {
+                path: "src/components/Popup.tsx",
+                content: "// Updated popup alignment\nexport const Popup = () => <div>Fixed</div>;\n",
+              },
+            }]);
+          }
 
-        // Must write a file before calling finish (executor validates this)
-        if (state.executorNeedsWrite) {
-          state.executorNeedsWrite = false;
-          return providerResponse(
-            JSON.stringify({
-              action: "write_file",
-              path: "src/components/Popup.tsx",
-              content: "// Updated popup alignment\nexport const Popup = () => <div>Fixed</div>;\n",
-            }),
-          );
-        }
+          // Follow-up call: input is an array with tool call history.
+          const inputArr = Array.isArray(request.input) ? request.input : [];
+          const calledNames = inputArr
+            .filter((item) => item.type === "function_call")
+            .map((item) => item.name as string);
 
-        // After writing, call finish and reset for next executor invocation
-        state.executorCalls += 1;
-        state.executorNeedsWrite = true;
-        if (state.scenario === "review_changes" && state.executorCalls === 1) {
-          return providerResponse(
-            JSON.stringify({
-              action: "finish",
-              summary: "Implemented the initial popup alignment fix.",
-              implementedPlanDelta:
-                "Adjusted the popup positioning rules but did not yet address the reviewer follow-up.",
-            }),
-          );
-        }
+          // write_file was called but finish not yet → call finish
+          if (calledNames.includes("write_file") && !calledNames.includes("finish")) {
+            state.executorCalls += 1;
+            const isFirstCycle = state.executorCalls === 1 && state.scenario === "review_changes";
+            return functionCallResponse([{
+              name: "finish",
+              args: isFirstCycle
+                ? {
+                    summary: "Implemented the initial popup alignment fix.",
+                    implementedPlanDelta: "Adjusted the popup positioning rules but did not yet address the reviewer follow-up.",
+                  }
+                : {
+                    summary: "Implemented the popup alignment fix.",
+                    implementedPlanDelta: "Adjusted popup positioning rules and retained the bounded breakpoint behavior.",
+                  },
+            }]);
+          }
 
-        return providerResponse(
-          JSON.stringify({
-            action: "finish",
-            summary: "Implemented the popup alignment fix.",
-            implementedPlanDelta:
-                "Adjusted popup positioning rules and retained the bounded breakpoint behavior.",
-            }),
-          );
+          // finish was already called → return final text (SDK stop condition fires on next check)
+          return providerResponse("Execution complete.");
         }
 
         state.reviewerCalls += 1;
@@ -439,13 +477,11 @@ describe("workflow orchestration", () => {
             JSON.stringify({
               decision: "request_changes",
               summary: "The desktop offset fix is good, but the reviewer still sees a missing regression guard.",
-              findings: [
-                {
-                  title: "Missing regression guard",
-                  body: "Add coverage or code handling for the desktop-only popup offset regression.",
-                  file: "src/components/Popup.tsx",
-                },
-              ],
+              findings: [{
+                title: "Missing regression guard",
+                body: "Add coverage or code handling for the desktop-only popup offset regression.",
+                file: "src/components/Popup.tsx",
+              }],
             }),
           );
         }
@@ -573,8 +609,9 @@ describe("workflow orchestration", () => {
     ]);
     expect(state.providerInvocations).toEqual([
       { role: "planner", cycle: 0, modelName: "test-planner-model" },
-      { role: "executor", cycle: 1, modelName: "test-executor-model" },
-      { role: "executor", cycle: 1, modelName: "test-executor-model" },
+      { role: "executor", cycle: 1, modelName: "test-executor-model" },  // write_file
+      { role: "executor", cycle: 1, modelName: "test-executor-model" },  // finish
+      { role: "executor", cycle: 1, modelName: "test-executor-model" },  // final text (after stopWhen)
       { role: "reviewer", cycle: 1, modelName: "test-reviewer-model" },
     ]);
     expect(commandPage.items).toHaveLength(1);
@@ -856,9 +893,10 @@ describe("workflow orchestration", () => {
     ]);
     expect(state.providerInvocations).toEqual([
       { role: "planner", cycle: 0, modelName: "test-planner-model" },
-      { role: "executor", cycle: 1, modelName: "test-executor-model" },
-      { role: "executor", cycle: 1, modelName: "test-executor-model" },
-      { role: "executor", cycle: 1, modelName: "test-executor-model" },
+      { role: "executor", cycle: 1, modelName: "test-executor-model" },  // needs_human_input
+      { role: "executor", cycle: 1, modelName: "test-executor-model" },  // write_file (after resume)
+      { role: "executor", cycle: 1, modelName: "test-executor-model" },  // finish
+      { role: "executor", cycle: 1, modelName: "test-executor-model" },  // final text
       { role: "reviewer", cycle: 1, modelName: "test-reviewer-model" },
     ]);
   }, 15_000);
@@ -911,15 +949,15 @@ describe("workflow orchestration", () => {
     ]);
     expect(state.providerInvocations.map((i) => i.role)).toEqual([
       "planner",
-      "executor", "executor",
+      "executor", "executor", "executor",  // write_file, finish, final text (cycle 1)
       "reviewer",
-      "executor", "executor",
+      "executor", "executor", "executor",  // write_file, finish, final text (cycle 2)
       "reviewer",
     ]);
     expect(state.providerInvocations[0]).toEqual({ role: "planner", cycle: 0, modelName: "test-planner-model" });
     expect(state.providerInvocations[1]).toEqual({ role: "executor", cycle: 1, modelName: "test-executor-model" });
-    expect(state.providerInvocations[3]).toEqual({ role: "reviewer", cycle: 1, modelName: "test-reviewer-model" });
-    expect(state.providerInvocations[4]).toEqual({ role: "executor", cycle: 2, modelName: "test-executor-model" });
-    expect(state.providerInvocations[6]).toEqual({ role: "reviewer", cycle: 2, modelName: "test-reviewer-model" });
+    expect(state.providerInvocations[4]).toEqual({ role: "reviewer", cycle: 1, modelName: "test-reviewer-model" });
+    expect(state.providerInvocations[5]).toEqual({ role: "executor", cycle: 2, modelName: "test-executor-model" });
+    expect(state.providerInvocations[8]).toEqual({ role: "reviewer", cycle: 2, modelName: "test-reviewer-model" });
   }, 15_000);
 });

@@ -1,15 +1,40 @@
 import { z } from "zod";
 
+// Accepts HTTP(S) URLs, Git SSH (`git@host:org/repo.git`), `ssh://...`, or
+// absolute local paths (`/path/to/repo`). The OS-level git binary handles all
+// of these — we just sanity-check the shape so empty strings don't slip in.
+const remoteUrlSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (value) => {
+      const trimmed = value.trim();
+      if (trimmed.length === 0) return false;
+      // HTTP/HTTPS/SSH URLs that the URL constructor parses.
+      try {
+        // eslint-disable-next-line no-new
+        new URL(trimmed);
+        return true;
+      } catch {
+        // Not a standard URL — accept Git SSH form and absolute local paths.
+        return /^[\w.-]+@[\w.-]+:.+/.test(trimmed) || /^\//.test(trimmed);
+      }
+    },
+    { message: "Invalid remote URL — expected http(s)://, git@host:..., ssh://, or absolute local path" },
+  );
+
 export const repositoryCreateSchema = z.object({
   name: z.string().min(1),
   gitProvider: z.string().default("gitlab"),
-  remoteUrl: z.string().url(),
+  remoteUrl: remoteUrlSchema,
   localMirrorPath: z.string().min(1),
   defaultBranch: z.string().default("main"),
   enabled: z.boolean().default(true),
   gitlabProjectId: z.string().optional().nullable(),
   allowedCommands: z.array(z.string()).default([]),
   validationCommands: z.array(z.string()).default([]),
+  instructions: z.string().optional().nullable(),
+  enabledTools: z.array(z.string()).optional().nullable(),
 });
 
 export const repoRuleCreateSchema = z
@@ -31,6 +56,19 @@ export const repoRuleCreateSchema = z
 export const manualRunRequestSchema = z.object({
   ticketKey: z.string().min(1),
   force: z.boolean().default(false),
+  // Optional inline ticket metadata to bypass Jira lookup. When `inline.title`
+  // is provided, the run is created from these fields directly without
+  // contacting Jira — useful for local dev, demos, and internal flows where
+  // Jira is not configured.
+  inline: z
+    .object({
+      title: z.string().min(1),
+      description: z.string().optional(),
+      projectKey: z.string().nullable().optional(),
+      labels: z.array(z.string()).optional(),
+      issueType: z.string().nullable().optional(),
+    })
+    .optional(),
 });
 
 export const jiraWebhookSchema = z.object({
@@ -45,13 +83,15 @@ export const runHumanResponseSchema = z.object({
 export const repositoryUpdateSchema = z.object({
   name: z.string().min(1).optional(),
   gitProvider: z.string().optional(),
-  remoteUrl: z.string().url().optional(),
+  remoteUrl: remoteUrlSchema.optional(),
   localMirrorPath: z.string().min(1).optional(),
   defaultBranch: z.string().optional(),
   enabled: z.boolean().optional(),
   gitlabProjectId: z.string().optional().nullable(),
   allowedCommands: z.array(z.string()).optional(),
   validationCommands: z.array(z.string()).optional(),
+  instructions: z.string().optional().nullable(),
+  enabledTools: z.array(z.string()).optional().nullable(),
 });
 
 export const repoRuleUpdateSchema = z.object({
@@ -151,6 +191,20 @@ export const runScheduleCreateSchema = z.object({
 });
 
 export const runScheduleUpdateSchema = runScheduleCreateSchema.partial();
+
+export const setupCredentialsSchema = z
+  .object({
+    openRouterKey: z.string().min(1).optional(),
+    githubToken: z.string().min(1).optional(),
+    gitlabToken: z.string().min(1).optional(),
+    gitlabBaseUrl: z.string().url().optional(),
+    jiraBaseUrl: z.string().url().optional(),
+    jiraEmail: z.string().email().optional(),
+    jiraApiToken: z.string().min(1).optional(),
+  })
+  .strict();
+
+export type SetupCredentialsInput = z.infer<typeof setupCredentialsSchema>;
 
 export type ConfigUpdateInput = z.infer<typeof configUpdateSchema>;
 export type RunScheduleCreateInput = z.infer<typeof runScheduleCreateSchema>;

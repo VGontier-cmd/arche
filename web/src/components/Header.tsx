@@ -89,10 +89,16 @@ export function Header({
           )}
         </span>
 
-        {/* System stats */}
-        <span>RAM {systemStats.ramMb}M / {systemStats.ramTotalMb}M</span>
-        <span>CPU {systemStats.loadAvg1.toFixed(2)} / {systemStats.cpuCount}</span>
-        <span>{formatTime(refreshedAt)}</span>
+        {/* System stats — collapsed under timestamp hover */}
+        <span
+          className="group relative cursor-default"
+          title={`RAM ${systemStats.ramMb}M / ${systemStats.ramTotalMb}M · CPU ${systemStats.loadAvg1.toFixed(2)} / ${systemStats.cpuCount}`}
+        >
+          {formatTime(refreshedAt)}
+          <span className="hidden group-hover:inline ml-1.5 text-[var(--fg3)] text-[10px]">
+            · {systemStats.ramMb}M RAM · {systemStats.loadAvg1.toFixed(1)} CPU
+          </span>
+        </span>
       </div>
     </div>
   );
@@ -109,10 +115,12 @@ function StatusDot({ active, label }: { active: boolean; label: string }) {
   );
 }
 
+const MAX_RECONNECT_DISPLAY = 10;
+
 function ConnectionIndicator({ info }: { info: ConnectionInfo }) {
   if (info.state === "connected") {
     return (
-      <span className="flex items-center gap-1.5">
+      <span className="flex items-center gap-1.5" title="Live updates connected">
         <span className="inline-block w-2 h-2 rounded-full bg-[#3fb950]" />
         Live
       </span>
@@ -126,10 +134,19 @@ function ConnectionIndicator({ info }: { info: ConnectionInfo }) {
       </span>
     );
   }
+  // Disconnected
+  if (info.reconnectAttempt > MAX_RECONNECT_DISPLAY) {
+    return (
+      <span className="flex items-center gap-1.5 text-[#f85149]" title={`${info.reconnectAttempt} reconnect attempts`}>
+        <span className="inline-block w-2 h-2 rounded-full bg-[#f85149]" />
+        Offline — refresh to retry
+      </span>
+    );
+  }
   return (
     <span className="flex items-center gap-1.5">
       <span className="inline-block w-2 h-2 rounded-full bg-[#f85149] animate-pulse" />
-      Reconnecting{info.reconnectAttempt > 1 ? ` (${info.reconnectAttempt})` : ""}
+      Reconnecting{info.reconnectAttempt > 0 ? ` (${info.reconnectAttempt}/${MAX_RECONNECT_DISPLAY})` : ""}
     </span>
   );
 }

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useReducer, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useReducer, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 type ToastType = "success" | "error" | "info";
@@ -9,6 +9,9 @@ type Toast = {
   type: ToastType;
 };
 
+const MAX_TOASTS = 5;
+const AUTO_DISMISS_MS = 4_000;
+
 type Action =
   | { kind: "add"; toast: Toast }
   | { kind: "remove"; id: number };
@@ -17,8 +20,12 @@ let nextId = 0;
 
 function reducer(state: Toast[], action: Action): Toast[] {
   switch (action.kind) {
-    case "add":
-      return [...state, action.toast];
+    case "add": {
+      // Drop the oldest toast when capacity is exceeded — prevents UI overflow
+      // when many transitions fire at once (e.g. polling resync after offline).
+      const next = state.length >= MAX_TOASTS ? state.slice(1) : state;
+      return [...next, action.toast];
+    }
     case "remove":
       return state.filter((t) => t.id !== action.id);
   }
@@ -40,14 +47,33 @@ const TYPE_COLORS: Record<ToastType, { bg: string; border: string; text: string 
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, dispatch] = useReducer(reducer, []);
+  const timersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
 
-  const remove = useCallback((id: number) => dispatch({ kind: "remove", id }), []);
+  const remove = useCallback((id: number) => {
+    const existing = timersRef.current.get(id);
+    if (existing) {
+      clearTimeout(existing);
+      timersRef.current.delete(id);
+    }
+    dispatch({ kind: "remove", id });
+  }, []);
+
+  // Cancel any pending auto-dismiss timers when the provider unmounts so we
+  // don't dispatch into an unmounted reducer.
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      for (const t of timers.values()) clearTimeout(t);
+      timers.clear();
+    };
+  }, []);
 
   const add = useCallback(
     (message: string, type: ToastType) => {
       const id = ++nextId;
       dispatch({ kind: "add", toast: { id, message, type } });
-      setTimeout(() => remove(id), 4000);
+      const timer = setTimeout(() => remove(id), AUTO_DISMISS_MS);
+      timersRef.current.set(id, timer);
     },
     [remove],
   );
@@ -62,7 +88,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={api}>
       {children}
       {createPortal(
-        <div className="fixed top-4 right-4 z-[200] flex flex-col gap-2 pointer-events-none">
+        <div aria-live="polite" aria-atomic="false" className="fixed top-4 right-4 z-[200] flex flex-col gap-2 pointer-events-none">
           {toasts.map((t) => {
             const c = TYPE_COLORS[t.type];
             return (

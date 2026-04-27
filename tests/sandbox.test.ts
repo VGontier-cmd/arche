@@ -42,6 +42,8 @@ describe("SandboxManager", () => {
         max_agent_steps: 8,
         max_run_seconds: 1200,
         human_input_timeout_hours: 24,
+        fetch_url_timeout_ms: 12000,
+        web_search_timeout_ms: 10000,
       },
       policy: {
         assignee: "agent-dev",
@@ -99,8 +101,20 @@ describe("SandboxManager", () => {
             temperature: 0.1,
             thinking_enabled: false,
             thinking_budget_tokens: 5000,
+            fallback_model: null,
+            max_run_cost_usd: null,
+            enable_prompt_caching: true,
           },
         },
+      },
+      notifications: {
+        slack_webhook_url: "",
+        slack_enabled: true,
+        browser_notifications_enabled: true,
+      },
+      complexity_routing: {
+        enabled: false,
+        default: "default",
       },
       bootstrap: {
         repositories: [],

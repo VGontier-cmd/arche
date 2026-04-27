@@ -11,6 +11,7 @@ import {
 
 import { db, withSqliteWriteRetry } from "../../db/client";
 import { runs, type RunRow } from "../../db/schema";
+import { ExternalServiceError } from "../errors";
 import { ACTIVE_RUN_STATES } from "../policy";
 import { serializeDate } from "../utils";
 import {
@@ -97,15 +98,37 @@ export async function claimNextRun(workerId: string, leaseTtlSeconds: number) {
   return claimed ?? null;
 }
 
-export async function refreshLease(runId: string, workerId: string, leaseTtlSeconds: number) {
-  await withSqliteWriteRetry(() => db
+export async function refreshLease(
+  runId: string,
+  workerId: string,
+  leaseTtlSeconds: number,
+): Promise<void> {
+  const [updated] = await withSqliteWriteRetry(() => db
     .update(runs)
     .set({
       leaseOwner: workerId,
       leaseExpiresAt: new Date(Date.now() + leaseTtlSeconds * 1000),
       updatedAt: new Date(),
     })
-    .where(eq(runs.id, runId)));
+    // Refuse the refresh only when another worker has stolen the lease — i.e.
+    // leaseOwner now points to a different workerId. We deliberately do NOT
+    // require leaseExpiresAt > now: the whole point of a refresh is to bump
+    // an in-flight (possibly briefly stale) lease, and a slow LLM call should
+    // not lose ownership while no one else has competed for it.
+    .where(
+      and(
+        eq(runs.id, runId),
+        eq(runs.leaseOwner, workerId),
+      ),
+    )
+    .returning());
+
+  if (!updated) {
+    throw new ExternalServiceError(
+      `Lease no longer held for run ${runId}`,
+      "lease_lost",
+    );
+  }
 }
 
 export async function sweepExpiredRuns() {
@@ -130,6 +153,7 @@ export async function sweepExpiredRuns() {
         finishedAt: now,
         leaseOwner: null,
         leaseExpiresAt: null,
+        worktreeRetained: true,
         updatedAt: now,
       })
       .where(eq(runs.id, run.id)));
@@ -141,6 +165,9 @@ export async function sweepExpiredRuns() {
 }
 
 export async function sweepTimedOutHumanInput(timeoutHours: number) {
+  if (!Number.isFinite(timeoutHours) || timeoutHours <= 0) {
+    return 0;
+  }
   const now = new Date();
   const cutoff = new Date(now.getTime() - timeoutHours * 3_600_000);
   const timedOut = await db

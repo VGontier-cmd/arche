@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 
 import { printJson } from "../lib/cli-helpers";
+import { inferProvider } from "../lib/git-utils";
 
 export function register(program: Command) {
   const repositories = program
@@ -22,6 +23,7 @@ export function register(program: Command) {
     .requiredOption("--remote-url <url>")
     .requiredOption("--local-mirror-path <path>")
     .option("--default-branch <branch>", "default branch", "main")
+    .option("--git-provider <provider>", "git provider (github|gitlab), auto-detected from remote URL if omitted")
     .option("--gitlab-project-id <id>")
     .action(async (options) => {
       const [{ ensureArcheReady }, { createRepository }] = await Promise.all([
@@ -29,9 +31,10 @@ export function register(program: Command) {
         import("../lib/arche/runs"),
       ]);
       await ensureArcheReady();
+      const gitProvider = options.gitProvider ?? inferProvider(options.remoteUrl);
       const repository = await createRepository({
         name: options.name,
-        gitProvider: "gitlab",
+        gitProvider,
         remoteUrl: options.remoteUrl,
         localMirrorPath: options.localMirrorPath,
         defaultBranch: options.defaultBranch,
@@ -39,6 +42,8 @@ export function register(program: Command) {
         gitlabProjectId: options.gitlabProjectId ?? null,
         allowedCommands: [],
         validationCommands: [],
+        instructions: null,
+        enabledTools: null,
       });
       printJson(repository);
     });

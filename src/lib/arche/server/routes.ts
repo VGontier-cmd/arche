@@ -21,10 +21,12 @@ import {
   runHumanResponseSchema,
   runScheduleCreateSchema,
   runScheduleUpdateSchema,
+  setupCredentialsSchema,
 } from "../contracts";
+import { resolveArcheProjectEnvPath, updateCredentialsInEnvFile } from "../../install";
 import { stopWorker, restartWorker, purgeOfflineWorkers } from "../workers";
 import { dashboardEvents } from "../dashboard/events";
-import { getDashboardSnapshot, getDashboardListSnapshot, getRunDetailSnapshot, getRunTimeline } from "../dashboard/snapshot";
+import { deriveDashboardCredentialEnvStatus, getDashboardSnapshot, getDashboardListSnapshot, getRunDetailSnapshot, getRunTimeline } from "../dashboard/snapshot";
 import { createLogger } from "../logging";
 import {
   approvePlan,
@@ -258,6 +260,119 @@ export function registerServerRoutes(app: FastifyInstance) {
     await reply.hijack();
   });
 
+  // === Per-run activity SSE ===
+  // Sends a lightweight ping whenever the run has new messages, events, or state changes.
+  // Clients subscribed to this stream can immediately re-fetch run details instead of waiting
+  // for the 3-second REST poll.
+  app.get<{ Params: { id: string } }>("/v1/runs/:id/stream", async (request, reply) => {
+    await ensureArcheReady();
+    const runId = request.params.id;
+
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+    reply.raw.write(": connected\n\n");
+
+    let closed = false;
+
+    const onActivity = (eventRunId: string) => {
+      if (closed || eventRunId !== runId) return;
+      reply.raw.write(`data: {"type":"activity"}\n\n`);
+    };
+
+    dashboardEvents.on("run:activity", onActivity);
+
+    // Keepalive comment every 25 s to prevent proxy timeouts.
+    const keepaliveTimer = setInterval(() => {
+      if (!closed) reply.raw.write(": keepalive\n\n");
+    }, 25_000);
+
+    request.raw.on("close", () => {
+      closed = true;
+      dashboardEvents.off("run:activity", onActivity);
+      clearInterval(keepaliveTimer);
+    });
+
+    await reply.hijack();
+  });
+
+  // === Live agent stream (text deltas + tool calls) ===
+  // Streams the LLM's incremental output while a turn is in flight, so the
+  // dashboard can render the agent's response as it's generated.
+  //
+  // The worker writes events into the `agent_stream_events` SQLite table
+  // (worker and server are separate processes, so EventEmitter alone doesn't
+  // cross the boundary). This route polls that table every ~250 ms with
+  // a cursor on `id` so each connection only ever sees each event once.
+  // We additionally hook the in-process EventEmitter to nudge the loop
+  // immediately when the server itself emits — useful in single-process
+  // tests and in `arche up` if both run in the same node binary.
+  app.get<{ Params: { id: string } }>("/v1/runs/:id/agent-stream", async (request, reply) => {
+    await ensureArcheReady();
+    const runId = request.params.id;
+    const { db } = await import("../../db/client");
+    const { agentStreamEvents } = await import("../../db/schema");
+    const { and, eq, gt, asc } = await import("drizzle-orm");
+
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+    reply.raw.write(": connected\n\n");
+
+    let closed = false;
+    let lastId = 0;
+    let pumping = false;
+    const channel = `agent:${runId}`;
+
+    const pump = async () => {
+      if (closed || pumping) return;
+      pumping = true;
+      try {
+        const rows = await db
+          .select()
+          .from(agentStreamEvents)
+          .where(and(eq(agentStreamEvents.runId, runId), gt(agentStreamEvents.id, lastId)))
+          .orderBy(asc(agentStreamEvents.id))
+          .limit(500);
+        for (const row of rows) {
+          if (closed) break;
+          reply.raw.write(`data: ${JSON.stringify(row.payload)}\n\n`);
+          lastId = row.id;
+        }
+      } catch {
+        // ignore — next tick retries
+      } finally {
+        pumping = false;
+      }
+    };
+
+    // In-process nudge: when the server emits directly, kick the pump
+    // without waiting for the next poll tick.
+    const onLocalEvent = () => { void pump(); };
+    dashboardEvents.on(channel, onLocalEvent);
+
+    const pollTimer = setInterval(() => { void pump(); }, 250);
+    const keepaliveTimer = setInterval(() => {
+      if (!closed) reply.raw.write(": keepalive\n\n");
+    }, 25_000);
+
+    // First pump kicks off immediately so reconnecting clients catch up.
+    void pump();
+
+    request.raw.on("close", () => {
+      closed = true;
+      dashboardEvents.off(channel, onLocalEvent);
+      clearInterval(pollTimer);
+      clearInterval(keepaliveTimer);
+    });
+
+    await reply.hijack();
+  });
+
   // === Runs ===
   app.get("/v1/runs", async () => {
     await ensureArcheReady();
@@ -335,7 +450,8 @@ export function registerServerRoutes(app: FastifyInstance) {
     "/v1/runs/:id/approve-plan",
     async (request) => {
       await ensureArcheReady();
-      return approvePlan(request.params.id);
+      const body = request.body as { proposalIndex?: number } | undefined;
+      return approvePlan(request.params.id, body?.proposalIndex);
     },
   );
 
@@ -377,6 +493,82 @@ export function registerServerRoutes(app: FastifyInstance) {
     return reply.send(markdown);
   });
 
+  app.get<{
+    Querystring: { format?: string; ids?: string | string[] };
+  }>("/v1/runs/export", async (request, reply) => {
+    await ensureArcheReady();
+    const format = (request.query.format ?? "csv").toLowerCase();
+    if (format !== "csv") {
+      reply.status(400);
+      return { error: "Only format=csv is supported" };
+    }
+    const idsParam = request.query.ids;
+    const ids = Array.isArray(idsParam)
+      ? idsParam
+      : typeof idsParam === "string" && idsParam.length > 0
+        ? idsParam.split(",")
+        : null;
+
+    const allRuns = await listRuns();
+    const filtered = ids
+      ? allRuns.filter((r) => ids.includes(r.id))
+      : allRuns;
+
+    const escape = (value: unknown): string => {
+      if (value === null || value === undefined) return "";
+      const str = String(value);
+      // RFC 4180: wrap in quotes if it contains comma, quote, newline.
+      if (/[",\n\r]/.test(str)) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const header = [
+      "id",
+      "ticket_key",
+      "ticket_title",
+      "repository",
+      "status",
+      "branch",
+      "started_at",
+      "finished_at",
+      "duration_seconds",
+      "prompt_tokens",
+      "completion_tokens",
+      "estimated_cost_usd",
+      "mr_url",
+    ];
+    const lines = [header.join(",")];
+    for (const run of filtered) {
+      const startedAt = run.startedAt ? new Date(run.startedAt) : null;
+      const finishedAt = run.finishedAt ? new Date(run.finishedAt) : null;
+      const durationSec = startedAt && finishedAt
+        ? Math.floor((finishedAt.getTime() - startedAt.getTime()) / 1000)
+        : "";
+      lines.push([
+        escape(run.id),
+        escape(run.ticketKey),
+        escape(run.ticketTitle),
+        escape(run.repoName ?? ""),
+        escape(run.status),
+        escape(run.branchName ?? ""),
+        escape(startedAt ? startedAt.toISOString() : ""),
+        escape(finishedAt ? finishedAt.toISOString() : ""),
+        escape(durationSec),
+        escape(run.promptTokens ?? ""),
+        escape(run.completionTokens ?? ""),
+        escape(run.estimatedCostUsd ?? ""),
+        escape(run.mrUrl ?? ""),
+      ].join(","));
+    }
+    const csv = lines.join("\n");
+    const filename = `arche-runs-${new Date().toISOString().slice(0, 10)}.csv`;
+    reply.header("Content-Type", "text/csv; charset=utf-8");
+    reply.header("Content-Disposition", `attachment; filename="${filename}"`);
+    return reply.send(csv);
+  });
+
   app.post<{ Params: { id: string } }>("/v1/runs/:id/create-mr", async (request) => {
     await ensureArcheReady();
     return createMergeRequestForRun(request.params.id);
@@ -394,6 +586,7 @@ export function registerServerRoutes(app: FastifyInstance) {
     const run = await createManualRunForTicket({
       ticketKey: body.ticketKey,
       force: body.force,
+      inline: body.inline,
     });
     reply.status(201);
     return run;
@@ -437,6 +630,23 @@ export function registerServerRoutes(app: FastifyInstance) {
     return fireSchedule(request.params.id);
   });
 
+  // === Cost estimate ===
+  app.get<{ Params: { id: string } }>("/v1/runs/:id/cost-estimate", async (request) => {
+    await ensureArcheReady();
+    const { getCostEstimateForRun } = await import("../runs");
+    return getCostEstimateForRun(request.params.id);
+  });
+
+  // === Metrics ===
+  app.get<{ Querystring: { days?: string } }>("/v1/metrics", async (request) => {
+    await ensureArcheReady();
+    const { getMetricsSummary } = await import("../runs");
+    const days = request.query.days ? Number(request.query.days) : undefined;
+    const since = days && days > 0 ? new Date(Date.now() - days * 86_400_000) : undefined;
+    const summary = await getMetricsSummary(since);
+    return { summary };
+  });
+
   // === Repositories ===
   app.get("/v1/repositories", async () => {
     await ensureArcheReady();
@@ -456,6 +666,8 @@ export function registerServerRoutes(app: FastifyInstance) {
       gitlabProjectId: body.gitlabProjectId ?? null,
       allowedCommands: body.allowedCommands,
       validationCommands: body.validationCommands,
+      instructions: body.instructions ?? null,
+      enabledTools: body.enabledTools ?? null,
     });
     reply.status(201);
     return repository;
@@ -554,6 +766,23 @@ export function registerServerRoutes(app: FastifyInstance) {
     const updated = await saveConfig(body);
     const { runtime: _runtime, bootstrap: _bootstrap, defaults, ...rest } = updated;
     return { ...rest, defaults };
+  });
+
+  // === Setup credentials ===
+  app.post("/v1/setup/credentials", async (request) => {
+    const body = setupCredentialsSchema.parse(request.body ?? {});
+    const envPath = resolveArcheProjectEnvPath();
+    await updateCredentialsInEnvFile(envPath, body);
+    logger.info("setup.credentials_updated", "credentials updated via dashboard", {
+      envPath,
+      fields: Object.keys(body),
+    });
+    const config = await getConfig();
+    return {
+      ok: true,
+      envPath,
+      credentialEnv: deriveDashboardCredentialEnvStatus(config),
+    };
   });
 
   // === Workers ===

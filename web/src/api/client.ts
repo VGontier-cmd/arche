@@ -1,4 +1,4 @@
-import type { DashboardRun, DashboardSnapshot, DashboardTimelineItem, OrchestratorConfigView, RepoRule, Repository, RunDetailSnapshot, RunSchedule } from "../types";
+import type { DashboardRun, DashboardSnapshot, DashboardTimelineItem, MetricsSummary, OrchestratorConfigView, RepoRule, Repository, RunDetailSnapshot, RunSchedule } from "../types";
 
 export async function fetchSnapshot(
   runId?: string | null,
@@ -25,6 +25,22 @@ export async function postRunAction(
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || res.statusText);
+  }
+}
+
+export async function postRunActionWithBody(
+  runId: string,
+  action: string,
+  body: Record<string, unknown>,
+): Promise<void> {
+  const res = await fetch(`/v1/runs/${runId}/${action}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error || res.statusText);
   }
 }
 
@@ -59,6 +75,27 @@ export function downloadRunExport(runId: string): void {
   const a = document.createElement("a");
   a.href = `/v1/runs/${runId}/export`;
   a.download = `run-${runId.slice(0, 8)}.md`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+export async function fetchRunMarkdown(runId: string): Promise<string> {
+  const res = await fetch(`/v1/runs/${runId}/export`);
+  if (!res.ok) throw new Error(`Run export fetch failed: ${res.statusText}`);
+  return res.text();
+}
+
+// === Run CSV batch export ===
+
+/** Pass an empty array to export all runs; otherwise only the listed run IDs. */
+export function downloadRunsCsv(runIds: string[]): void {
+  const params = new URLSearchParams();
+  params.set("format", "csv");
+  for (const id of runIds) params.append("ids", id);
+  const a = document.createElement("a");
+  a.href = `/v1/runs/export?${params.toString()}`;
+  a.download = `arche-runs-${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -125,7 +162,10 @@ export async function fetchTicketRuns(ticketKey: string): Promise<DashboardRun[]
 
 // === Manual Run ===
 
-export async function triggerManualRun(ticketKey: string, force = false): Promise<unknown> {
+export async function triggerManualRun(
+  ticketKey: string,
+  force = false,
+): Promise<{ id: string } & Record<string, unknown>> {
   const res = await fetch("/v1/runs/manual", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -136,6 +176,22 @@ export async function triggerManualRun(ticketKey: string, force = false): Promis
     throw new Error(body.error || res.statusText);
   }
   return res.json();
+}
+
+// === Metrics ===
+
+export async function fetchCostEstimate(runId: string): Promise<import("../types").CostEstimate> {
+  const res = await fetch(`/v1/runs/${runId}/cost-estimate`);
+  if (!res.ok) throw new Error(`Cost estimate fetch failed: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchMetrics(days?: number): Promise<MetricsSummary> {
+  const url = days ? `/v1/metrics?days=${days}` : "/v1/metrics";
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Fetch metrics failed: ${res.statusText}`);
+  const json = await res.json() as { summary: MetricsSummary };
+  return json.summary;
 }
 
 // === Repositories ===
@@ -178,6 +234,33 @@ export async function deleteRepositoryApi(id: string): Promise<void> {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || res.statusText);
   }
+}
+
+// === Setup credentials ===
+
+export type SetupCredentialsInput = {
+  openRouterKey?: string;
+  githubToken?: string;
+  gitlabToken?: string;
+  gitlabBaseUrl?: string;
+  jiraBaseUrl?: string;
+  jiraEmail?: string;
+  jiraApiToken?: string;
+};
+
+export async function saveSetupCredentials(
+  data: SetupCredentialsInput,
+): Promise<{ ok: true; envPath: string }> {
+  const res = await fetch("/v1/setup/credentials", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || res.statusText);
+  }
+  return res.json();
 }
 
 // === Repo Rules ===

@@ -11,6 +11,7 @@ import {
   makeWorkerMetadata,
   markWorkerError,
   markWorkerIdle,
+  purgeOfflineWorkers,
   registerWorker,
   updateWorkerState,
   deregisterWorker,
@@ -182,6 +183,10 @@ export async function startWorker() {
   // Startup cleanup
   await cleanupOrphanContainers();
   await cleanupOrphanWorktrees();
+  // Clear out worker rows orphaned by `kill -9` of previous Arche processes.
+  // Without this, the dashboard's worker list slowly fills up with zombies
+  // that the operator has to purge by hand each time.
+  await purgeOfflineWorkers().catch(() => undefined);
 
   while (!shutdownRequested) {
     try {
@@ -218,6 +223,11 @@ export async function startWorker() {
       }
       if (cycles % 100 === 0) {
         await checkpointWal("PASSIVE");
+      }
+      // Self-heal worker registry every minute (12 cycles × 5 s default poll)
+      // — drops rows whose PID is gone or whose heartbeat is > 5 min stale.
+      if (cycles % 12 === 0) {
+        await purgeOfflineWorkers().catch(() => undefined);
       }
 
       // Hourly database backup

@@ -11,6 +11,7 @@ export const WORKER_STATUSES = ["idle", "busy", "waiting", "error"] as const;
 export const WORKER_ACTIVITIES = [
   "polling",
   "claiming_run",
+  "researching",
   "planning",
   "preparing_repo",
   "creating_sandbox",
@@ -219,6 +220,8 @@ export async function stopWorker(workerId: string): Promise<{ success: boolean; 
 export async function purgeOfflineWorkers(): Promise<{ purged: string[] }> {
   const allWorkers = await db.select().from(workers);
   const purged: string[] = [];
+  const heartbeatStaleMs = 5 * 60_000; // 5 minutes
+  const now = Date.now();
   for (const w of allWorkers) {
     let alive = true;
     try {
@@ -226,7 +229,13 @@ export async function purgeOfflineWorkers(): Promise<{ purged: string[] }> {
     } catch {
       alive = false;
     }
-    if (!alive) {
+    // Heartbeat-based fallback: if a worker hasn't heartbeated in 5 min,
+    // assume it's dead even if its PID happens to be reused by something
+    // else on the OS. The worker loop heartbeats every 5 s so 5 min is a
+    // generous safety margin.
+    const hb = w.lastHeartbeatAt instanceof Date ? w.lastHeartbeatAt.getTime() : 0;
+    const staleHeartbeat = now - hb > heartbeatStaleMs;
+    if (!alive || staleHeartbeat) {
       await deregisterWorker(w.id);
       purged.push(w.id);
     }

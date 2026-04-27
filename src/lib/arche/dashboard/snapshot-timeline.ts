@@ -18,9 +18,10 @@ export function buildTimeline(input: {
     ...input.messages.map((message) => ({
       id: `message-${message.id}`,
       source: "message" as const,
+      kind: message.kind ?? null,
       timestamp: message.timestamp,
-      title: `${message.role}/${message.kind}`,
-      detail: message.contentExcerpt,
+      title: buildMessageTitle(message.role, message.kind ?? "", message.contentExcerpt ?? ""),
+      detail: buildMessageDetail(message.kind ?? "", message.contentExcerpt ?? ""),
       thinkingExcerpt: (message as { thinkingExcerpt?: string | null }).thinkingExcerpt ?? null,
       sortTime: parseTimestamp(message.timestamp),
       sortKey: `message-${message.id}`,
@@ -76,6 +77,27 @@ export function buildTimeline(input: {
       return left.sortKey.localeCompare(right.sortKey);
     })
     .map(({ sortKey: _sortKey, sortTime: _sortTime, ...item }) => item);
+}
+
+/**
+ * For executor action messages (kind="action"), the content IS the title — it's already
+ * a short, descriptive line like "Writing file: src/index.ts".
+ * For structured outputs (plan/review), use a concise label and put content in the detail.
+ */
+function buildMessageTitle(role: string, kind: string, content: string): string {
+  if (kind === "action" || kind === "observation") {
+    return content || `${role}/${kind}`;
+  }
+  if (kind === "plan") return "Plan drafted";
+  if (kind === "review") return "Review result";
+  if (kind === "error") return "Error";
+  return `${role}/${kind}`;
+}
+
+function buildMessageDetail(kind: string, content: string): string | null {
+  // Actions are self-descriptive — no need for an expand section.
+  if (kind === "action") return null;
+  return content || null;
 }
 
 function parseTimestamp(timestamp: string | null) {

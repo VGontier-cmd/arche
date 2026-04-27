@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useDashboard } from "./hooks/useDashboard";
 import { useHashRouter } from "./hooks/useHashRouter";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
-import { postRespond, postRunAction, triggerManualRun, stopWorkerApi, restartWorkerApi, purgeOfflineWorkersApi } from "./api/client";
+import { postRespond, postRunAction, postRunActionWithBody, triggerManualRun, stopWorkerApi, restartWorkerApi, purgeOfflineWorkersApi } from "./api/client";
 import { useToast } from "./context/ToastContext";
 import { Header } from "./components/Header";
 import { KpiCards } from "./components/KpiCards";
@@ -21,6 +21,7 @@ import { SetupWizard } from "./components/SetupWizard";
 import { SkeletonLoader } from "./components/SkeletonLoader";
 import { TicketHistoryModal } from "./components/TicketHistoryModal";
 import { SchedulesView } from "./components/SchedulesView";
+import { MetricsView } from "./components/MetricsView";
 
 const DESTRUCTIVE_ACTIONS: Record<string, { title: string; body: string; label: string }> = {
   cancel: {
@@ -120,14 +121,23 @@ export default function App() {
         retry: "pending",
         "retry-executor": "pending",
       };
-      const newStatus = optimisticStatus[action];
+      // approve-plan:N — proposal selection
+      const proposalMatch = action.match(/^approve-plan:(\d+)$/);
+
+      const baseAction = proposalMatch ? "approve-plan" : action;
+      const newStatus = optimisticStatus[baseAction];
       if (newStatus) {
         applyOptimisticUpdate(runId, { status: newStatus });
       }
 
       setPendingAction(action);
       try {
-        await postRunAction(runId, action);
+        if (proposalMatch) {
+          const proposalIndex = parseInt(proposalMatch[1]!, 10);
+          await postRunActionWithBody(runId, "approve-plan", { proposalIndex });
+        } else {
+          await postRunAction(runId, action);
+        }
         if (action === "archive") {
           selectRun(null);
         }
@@ -202,15 +212,21 @@ export default function App() {
     async (ticketKey: string, force: boolean) => {
       setTriggerRunOpen(false);
       try {
-        await triggerManualRun(ticketKey, force);
+        const created = await triggerManualRun(ticketKey, force);
         setActiveView("runs");
+        // Auto-select the freshly created run so the user lands directly on
+        // its detail pane (live phase diagram, agent stream, cost ticker)
+        // instead of having to hunt for it in the inbox.
+        if (created?.id) {
+          selectRun(created.id);
+        }
         await refresh();
         toast.success(`Run triggered for ${ticketKey}`);
       } catch (e) {
         toast.error("Trigger failed: " + (e instanceof Error ? e.message : e));
       }
     },
-    [refresh, toast],
+    [refresh, selectRun, toast],
   );
 
   const handleStopWorker = useCallback(
@@ -331,6 +347,12 @@ export default function App() {
 
   return (
     <div className="flex h-screen">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:z-[999] focus:top-2 focus:left-2 focus:px-3 focus:py-1.5 focus:text-xs focus:bg-[var(--color-base-100)] focus:border focus:border-[var(--border-color)] focus:rounded focus:text-[var(--color-base-content)]"
+      >
+        Skip to main content
+      </a>
       <NavSidebar
         activeView={activeView}
         onChangeView={setActiveView}
@@ -342,9 +364,9 @@ export default function App() {
         <Header workers={snapshot.workers} services={snapshot.services} systemStats={snapshot.systemStats} refreshedAt={snapshot.refreshedAt} connectionInfo={connectionInfo} onStopWorker={handleStopWorker} onRestartWorker={handleRestartWorker} onPurgeOffline={handlePurgeOffline} />
         <DoctorBanner snapshot={snapshot} />
         <KpiCards summary={snapshot.summary} />
-        <div className="flex flex-1 min-h-0">
+        <div id="main-content" className="flex flex-1 min-h-0">
           {activeView === "runs" && snapshot.repositoryCount === 0 && !wizardDismissed ? (
-            <SetupWizard snapshot={snapshot} onComplete={() => { setWizardDismissed(true); refresh(); }} />
+            <SetupWizard snapshot={snapshot} onRefresh={refresh} onComplete={() => { setWizardDismissed(true); refresh(); }} />
           ) : activeView === "runs" && (
             <div className="flex flex-col lg:flex-row flex-1 min-w-0">
               <Sidebar
@@ -388,6 +410,11 @@ export default function App() {
           {activeView === "schedules" && (
             <div className="flex-1 overflow-y-auto">
               <SchedulesView />
+            </div>
+          )}
+          {activeView === "metrics" && (
+            <div className="flex-1 overflow-y-auto">
+              <MetricsView />
             </div>
           )}
         </div>

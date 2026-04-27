@@ -1,5 +1,5 @@
-import { readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 
 import { parse as parseDotEnv } from "dotenv";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -34,12 +34,16 @@ const userGitlabKeys = ["USER_GITLAB_BASE_URL", "USER_GITLAB_TOKEN"] as const;
 /** PAT for `https://github.com/...` clone/push; optional. */
 const userGithubKeys = ["USER_GITHUB_TOKEN"] as const;
 
+/** Web search API keys — optional, enable web_search tool for executor. */
+const userWebSearchKeys = ["SERPER_API_KEY", "BRAVE_API_KEY"] as const;
+
 const userManagedKeys = [
   ...userOpenRouterKeys,
   ...userGitIdentityKeys,
   ...userJiraKeys,
   ...userGitlabKeys,
   ...userGithubKeys,
+  ...userWebSearchKeys,
 ] as const;
 
 export const managedEnvKeys = [
@@ -70,6 +74,8 @@ export const defaultInstallEnvValues: InstallEnvValues = {
   USER_GITLAB_BASE_URL: "",
   USER_GITLAB_TOKEN: "",
   USER_GITHUB_TOKEN: "",
+  SERPER_API_KEY: "",
+  BRAVE_API_KEY: "",
 };
 
 export const defaultInitOrchestratorValues = {
@@ -390,6 +396,58 @@ export function applyEnvToProcess(values: Record<string, string>) {
   for (const [key, value] of Object.entries(values)) {
     process.env[key] = value;
   }
+}
+
+/**
+ * Updates only the user credential fields in `.arche/environment` (creating it
+ * if missing), preserving everything else, then applies the new values to
+ * `process.env` so the next call to `readSecretEnv()` sees them. Used by the
+ * dashboard setup wizard so the user doesn't have to drop to a CLI to enter
+ * credentials.
+ */
+export async function updateCredentialsInEnvFile(
+  envPath: string,
+  updates: {
+    openRouterKey?: string;
+    githubToken?: string;
+    gitlabToken?: string;
+    gitlabBaseUrl?: string;
+    jiraBaseUrl?: string;
+    jiraEmail?: string;
+    jiraApiToken?: string;
+  },
+): Promise<{ written: boolean }> {
+  const existingValues = await readEnvFile(envPath);
+  const managedValues = resolveInstallEnvValues({ existingValues });
+  const preserved = preserveUnmanagedEnvValues({ existingValues });
+
+  const next: InstallEnvValues = { ...managedValues };
+  if (updates.openRouterKey !== undefined) {
+    next[USER_OPENROUTER_API_KEY_ENV] = updates.openRouterKey;
+  }
+  if (updates.githubToken !== undefined) {
+    next.USER_GITHUB_TOKEN = updates.githubToken;
+  }
+  if (updates.gitlabToken !== undefined) {
+    next.USER_GITLAB_TOKEN = updates.gitlabToken;
+  }
+  if (updates.gitlabBaseUrl !== undefined) {
+    next.USER_GITLAB_BASE_URL = updates.gitlabBaseUrl;
+  }
+  if (updates.jiraBaseUrl !== undefined) {
+    next.USER_JIRA_BASE_URL = updates.jiraBaseUrl;
+  }
+  if (updates.jiraEmail !== undefined) {
+    next.USER_JIRA_EMAIL = updates.jiraEmail;
+  }
+  if (updates.jiraApiToken !== undefined) {
+    next.USER_JIRA_API_TOKEN = updates.jiraApiToken;
+  }
+
+  await mkdir(dirname(envPath), { recursive: true });
+  await writeInstallEnvFile(envPath, next, preserved);
+  applyEnvToProcess({ ...preserved, ...next });
+  return { written: true };
 }
 
 function pickManagedOverrides(

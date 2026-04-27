@@ -9,7 +9,7 @@ export function DetailPlan({ planMarkdown }: { planMarkdown: string | null }) {
         Plan
       </h3>
       <div
-        className="arche-prose max-h-[200px] overflow-auto bg-[var(--color-base-200)] p-3 rounded-[var(--rounded-box)]"
+        className="arche-prose max-h-[600px] overflow-auto bg-[var(--color-base-200)] p-3 rounded-[var(--rounded-box)]"
         dangerouslySetInnerHTML={{ __html: renderMarkdown(planMarkdown) }}
       />
     </div>

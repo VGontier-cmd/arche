@@ -14,6 +14,11 @@ export function normalizeIssue(rawIssue: unknown): JiraIssue {
       labels?: string[];
       assignee?: { displayName?: string; name?: string; emailAddress?: string };
       project?: { key?: string };
+      attachment?: Array<{
+        filename?: string;
+        content?: string;
+        mimeType?: string;
+      }>;
     };
   };
   const fields = issue.fields ?? {};
@@ -23,6 +28,18 @@ export function normalizeIssue(rawIssue: unknown): JiraIssue {
       : fields.description
         ? JSON.stringify(fields.description)
         : "";
+
+  // Extract image attachments — these are forwarded to the planner as
+  // multimodal input so screenshots from UI bug tickets are actually visible
+  // to the model instead of being dropped on the floor.
+  const attachmentImages = (fields.attachment ?? [])
+    .filter((a): a is { filename: string; content: string; mimeType: string } =>
+      typeof a?.filename === "string" &&
+      typeof a?.content === "string" &&
+      typeof a?.mimeType === "string" &&
+      a.mimeType.startsWith("image/"),
+    )
+    .map((a) => ({ filename: a.filename, url: a.content, mimeType: a.mimeType }));
 
   return {
     key: issue.key,
@@ -37,6 +54,7 @@ export function normalizeIssue(rawIssue: unknown): JiraIssue {
       fields.assignee?.emailAddress ??
       null,
     projectKey: fields.project?.key ?? null,
+    attachmentImages: attachmentImages.length > 0 ? attachmentImages : undefined,
     raw: (rawIssue ?? {}) as Record<string, unknown>,
   };
 }

@@ -18,15 +18,19 @@ import { JiraClient, normalizeIssue } from "../jira";
 import { assertIssueEligible } from "../policy";
 import { resolveExecutionProfile } from "../profiles";
 import { resolveRepositoryForIssue } from "../repository-resolver";
+import { resolveRepoExtraTools, resolveRepoInstructions } from "./repositories";
+import { scoreComplexity, resolveProfileByComplexity } from "../complexity";
 import {
   buildExecutorPrompt,
   buildPlannerPrompt,
+  buildResearcherPrompt,
   buildReviewerPrompt,
   resolveRoleProfile,
   runExecutorPatchLoop,
   runStructuredRole,
   type WorkflowHooks,
 } from "../run-workflow";
+import { researcherRoleOutputSchema, researcherSchemaHint } from "../role-schemas";
 import { SandboxManager } from "../sandbox";
 import type {
   JiraIssue,
@@ -547,16 +551,65 @@ async function pushApprovedRun(
   await deps.transitionRun(input.run.id, "pushed");
 
   if (input.config.workflow.auto_create_mr) {
+    await tryCreateMergeRequestWithRetry(input.run.id, deps);
+  }
+}
+
+const AUTO_MR_RETRY_DELAYS_MS = [1_000, 3_000, 9_000];
+
+async function tryCreateMergeRequestWithRetry(
+  runId: string,
+  deps: RunProcessDeps,
+) {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt <= AUTO_MR_RETRY_DELAYS_MS.length; attempt++) {
     try {
-      await createMergeRequestForRun(input.run.id);
-      await deps.appendSystemRunLog(input.run.id, "auto-created merge/pull request");
-    } catch (err: unknown) {
+      await createMergeRequestForRun(runId);
       await deps.appendSystemRunLog(
-        input.run.id,
-        `auto MR creation failed: ${err instanceof Error ? err.message : String(err)}`,
+        runId,
+        attempt === 0
+          ? "auto-created merge/pull request"
+          : `auto-created merge/pull request (after ${attempt} retries)`,
       );
+      return;
+    } catch (err: unknown) {
+      lastError = err;
+      const message = err instanceof Error ? err.message : String(err);
+      if (attempt >= AUTO_MR_RETRY_DELAYS_MS.length) break;
+      const baseDelay = AUTO_MR_RETRY_DELAYS_MS[attempt] ?? 0;
+      const jitter = Math.floor(baseDelay * (Math.random() * 0.2 - 0.1));
+      const delay = Math.max(0, baseDelay + jitter);
+      await deps.appendSystemRunLog(
+        runId,
+        `auto MR creation attempt ${attempt + 1} failed: ${message} — retrying in ${delay}ms`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
+
+  const finalMessage =
+    lastError instanceof Error ? lastError.message : String(lastError ?? "unknown error");
+  await deps.appendSystemRunLog(
+    runId,
+    `auto MR creation failed after retries: ${finalMessage}`,
+  );
+  await deps.appendRunEvent(runId, "run.auto_mr_failed", { error: finalMessage });
+  // Surface a recoverable state so a human can retry from the dashboard
+  // instead of leaving the run silently stuck in "pushed" without an MR.
+  await withSqliteWriteRetry(() =>
+    db
+      .update(runs)
+      .set({
+        status: "needs_human_input",
+        currentRole: "reviewer",
+        pendingQuestion: `MR creation failed after retries: ${finalMessage}. Retry from the dashboard.`,
+        updatedAt: new Date(),
+      })
+      .where(eq(runs.id, runId)),
+  );
+  await deps.appendRunEvent(runId, "run.needs_human_input", {
+    reason: "auto_mr_failed",
+  });
 }
 
 function resolveRepositoryCommandPolicies(
@@ -638,6 +691,82 @@ async function resolveRunContextForProcessing(input: {
   };
 }
 
+async function runResearcherPhase(input: {
+  runId: string;
+  workerId: string;
+  run: RunRow;
+  issue: JiraIssue;
+  repository: RepositoryRow;
+  worktreePath: string;
+  repoInstructions: string | null;
+  services: RunProcessingServices;
+  deps: RunProcessDeps;
+}): Promise<string | null> {
+  await withSqliteWriteRetry(() =>
+    db.update(runs).set({ status: "researching" as RunStatus, currentRole: "planner", updatedAt: new Date() })
+      .where(eq(runs.id, input.runId)),
+  );
+  await input.deps.appendRunEvent(input.runId, "run.researching");
+  await input.deps.setWorkerPhase(input.workerId, input.run, { status: "busy", activity: "researching" });
+  await input.deps.appendSystemRunLog(input.runId, "researcher phase started");
+
+  const { OpenRouterSdkProvider } = await import("../provider");
+  const trackedFiles = await input.services.git.trackedFiles(input.worktreePath);
+  const profile = resolveRoleProfile(input.run, "planner", input.services.config);
+  assertExecutionProfileSecret("planner", profile);
+
+  const provider = new OpenRouterSdkProvider({
+    modelName: profile.model,
+    baseUrl: profile.base_url,
+    apiKeyEnv: profile.api_key_env,
+    temperature: profile.temperature,
+    timeoutMs: profile.timeout_seconds * 1000,
+    thinkingEnabled: false,
+    thinkingBudgetTokens: 0,
+    role: "researcher",
+    // Stream researcher deltas to the dashboard too — same channel as
+    // planner / reviewer / executor.
+    onStreamEvent: async (ev) => {
+      const { notifyAgentEvent } = await import("../dashboard/events");
+      notifyAgentEvent(input.runId, ev);
+    },
+  });
+
+  const prompt = buildResearcherPrompt({
+    issue: input.issue,
+    repository: input.repository,
+    trackedFiles,
+    repoInstructions: input.repoInstructions,
+  });
+
+  const result = await provider.completeStructured(
+    [
+      { role: "system" as const, content: "You are Arche. Follow the user instructions exactly and return only JSON." },
+      { role: "user" as const, content: prompt },
+    ],
+    researcherRoleOutputSchema,
+    researcherSchemaHint,
+  );
+
+  const output = result.output;
+  const summary = [
+    output.summary,
+    output.relevantFiles.length > 0 ? `\nKey files: ${output.relevantFiles.slice(0, 10).join(", ")}` : "",
+    output.architectureNotes ? `\nArchitecture: ${output.architectureNotes}` : "",
+    output.potentialRisks.length > 0 ? `\nRisks: ${output.potentialRisks.join("; ")}` : "",
+  ].filter(Boolean).join("\n");
+
+  await withSqliteWriteRetry(() =>
+    db.update(runs).set({ researchSummary: summary, updatedAt: new Date() }).where(eq(runs.id, input.runId)),
+  );
+  await input.deps.appendRunEvent(input.runId, "run.research_completed", {
+    relevantFileCount: output.relevantFiles.length,
+    riskCount: output.potentialRisks.length,
+  });
+  await input.deps.appendSystemRunLog(input.runId, "researcher phase completed");
+  return summary;
+}
+
 async function runPlannerPhase(input: {
   runId: string;
   workerId: string;
@@ -645,6 +774,8 @@ async function runPlannerPhase(input: {
   issue: JiraIssue;
   repository: RepositoryRow;
   worktreePath: string;
+  repoInstructions: string | null;
+  researchFindings: string | null;
   services: RunProcessingServices;
   deps: RunProcessDeps;
 }) {
@@ -682,7 +813,12 @@ async function runPlannerPhase(input: {
         input.services.config.workflow.require_publish_approval,
       latestHumanResponse: input.run.latestHumanResponse ?? null,
       recentCommits,
+      repoInstructions: input.repoInstructions,
+      researchFindings: input.researchFindings,
     }),
+    // Forward Jira screenshot attachments (if any) so the planner can see UI
+    // bug screenshots directly instead of relying on the description alone.
+    images: input.issue.attachmentImages?.map((a) => ({ url: a.url })),
     profile: plannerProfile,
     workerId: input.workerId,
     hooks: input.services.workflowHooks,
@@ -693,15 +829,15 @@ async function runPlannerPhase(input: {
       {
         runId: input.runId,
         role: "planner",
-        question:
-          plannerResult.output.question ??
-          plannerResult.output.openQuestions[0] ??
-          "Planner requires clarification.",
+        question: plannerResult.output.question ?? "Planner requires clarification.",
       },
       input.deps,
     );
     return input.deps.getRunById(input.runId);
   }
+
+  const proposals = plannerResult.output.proposals ?? [];
+  const defaultProposal = proposals.find((p: { approach: string }) => p.approach === "balanced") ?? proposals[0];
 
   await withSqliteWriteRetry(() =>
     db
@@ -709,9 +845,10 @@ async function runPlannerPhase(input: {
       .set({
         status: "awaiting_plan_approval",
         currentRole: "planner",
-        planMarkdown: plannerResult.output.planMarkdown,
-        planRisks: plannerResult.output.risks,
-        planOpenQuestions: plannerResult.output.openQuestions,
+        planMarkdown: defaultProposal?.planMarkdown ?? null,
+        planRisks: defaultProposal?.risks ?? [],
+        planOpenQuestions: defaultProposal?.openQuestions ?? [],
+        planProposals: proposals,
         pendingQuestion: null,
         latestHumanResponse: null,
         updatedAt: new Date(),
@@ -719,14 +856,13 @@ async function runPlannerPhase(input: {
       .where(eq(runs.id, input.runId)),
   );
   await input.deps.appendRunEvent(input.runId, "run.awaiting_plan_approval", {
-    riskCount: plannerResult.output.risks.length,
-    openQuestionCount: plannerResult.output.openQuestions.length,
+    proposalCount: proposals.length,
   });
   await input.deps.appendRunMessage(
     input.runId,
     "assistant",
     "plan",
-    plannerResult.output.planMarkdown,
+    proposals.map((p: { approach: string; planMarkdown: string }, i: number) => `## Option ${i + 1}: ${p.approach}\n\n${p.planMarkdown}`).join("\n\n---\n\n"),
   );
   await input.deps.appendSystemRunLog(
     input.runId,
@@ -746,6 +882,8 @@ async function runExecutorPhase(input: {
   pendingFindings: ReviewFinding[];
   worktreePath: string;
   sandboxId: string;
+  repoInstructions: string | null;
+  repoExtraTools: string[];
   services: RunProcessingServices;
   deps: RunProcessDeps;
 }): Promise<ExecutorPhaseResult> {
@@ -779,7 +917,9 @@ async function runExecutorPhase(input: {
       findings: input.pendingFindings,
       diffExcerpt: input.run.diffExcerpt ?? "",
       latestHumanResponse: input.run.latestHumanResponse ?? null,
+      repoInstructions: input.repoInstructions,
     }),
+    extraToolNames: input.repoExtraTools,
     profile: executorProfile,
     workerId: input.workerId,
     repository: input.repository,
@@ -856,6 +996,7 @@ async function runReviewerPhase(input: {
   diffExcerpt: string;
   pendingFindings: ReviewFinding[];
   currentCycle: number;
+  repoInstructions: string | null;
   services: RunProcessingServices;
   deps: RunProcessDeps;
 }): Promise<ReviewerPhaseResult> {
@@ -883,6 +1024,7 @@ async function runReviewerPhase(input: {
       validationFindings: input.pendingFindings,
       latestHumanResponse: input.run.latestHumanResponse ?? null,
       cycle: input.currentCycle,
+      repoInstructions: input.repoInstructions,
     }),
     profile: reviewerProfile,
     workerId: input.workerId,
@@ -1272,6 +1414,9 @@ export async function processRunWithDeps(
         );
         run = sandboxReady.run;
 
+        const repoInstructions = await resolveRepoInstructions(resolvedRepository, worktree.worktreePath);
+        const repoExtraTools = await resolveRepoExtraTools(resolvedRepository, worktree.worktreePath);
+
         const currentRole = (run.currentRole ?? "planner") as RunTaskRole;
         let currentCycle = Math.max(
           run.currentCycle ?? 0,
@@ -1283,7 +1428,42 @@ export async function processRunWithDeps(
           currentCycle = (run.currentCycle ?? 0) + 1;
         }
 
+        // Complexity scoring for dynamic model selection (used by executor phases)
+        const complexityScore = scoreComplexity({
+          descriptionLength: issue.description?.length ?? 0,
+          trackedFileCount: 0,
+          cycle: currentCycle,
+          hasPendingFindings: (run.latestFindings ?? []).length > 0,
+        });
+        void complexityScore; // used in future when resolveProfileByComplexity is wired to executor
+
         if (currentRole === "planner") {
+          // Run researcher phase first (no human gate — feeds planner context).
+          // Best-effort: cancellation propagates, everything else is logged and
+          // swallowed so the planner still runs with whatever context we have.
+          let researchFindings: string | null = null;
+          try {
+            researchFindings = await runResearcherPhase({
+              runId,
+              workerId,
+              run,
+              issue,
+              repository: resolvedRepository,
+              worktreePath: worktree.worktreePath,
+              repoInstructions,
+              services: { config, jira, gitlab, git, sandbox, workflowHooks },
+              deps,
+            });
+          } catch (err) {
+            if (err instanceof CancelledError) throw err;
+            console.warn(
+              `[arche] researcher phase failed for run ${runId}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+
+          // Re-fetch run after researcher phase transition
+          run = await deps.getRunById(runId);
+
           return runPlannerPhase({
             runId,
             workerId,
@@ -1291,6 +1471,8 @@ export async function processRunWithDeps(
             issue,
             repository: resolvedRepository,
             worktreePath: worktree.worktreePath,
+            repoInstructions,
+            researchFindings,
             services: {
               config,
               jira,
@@ -1336,6 +1518,7 @@ export async function processRunWithDeps(
             diffExcerpt,
             pendingFindings,
             currentCycle,
+            repoInstructions,
             services: {
               config,
               jira,
@@ -1361,6 +1544,8 @@ export async function processRunWithDeps(
           pendingFindings,
           worktreePath: worktree.worktreePath,
           sandboxId: sandboxReady.sandboxId,
+          repoInstructions,
+          repoExtraTools,
           services: {
             config,
             jira,
@@ -1388,6 +1573,7 @@ export async function processRunWithDeps(
           diffExcerpt,
           pendingFindings: [], // validation passed before finish — no pending findings
           currentCycle,
+          repoInstructions,
           services: {
             config,
             jira,
@@ -1444,6 +1630,8 @@ export async function processRunWithDeps(
             pendingFindings: autoRetryFindings,
             worktreePath: worktree.worktreePath,
             sandboxId: sandboxReady.sandboxId,
+            repoInstructions,
+            repoExtraTools,
             services: {
               config,
               jira,
@@ -1468,6 +1656,7 @@ export async function processRunWithDeps(
             diffExcerpt,
             pendingFindings: [],
             currentCycle: autoRetryCycle,
+            repoInstructions,
             services: {
               config,
               jira,

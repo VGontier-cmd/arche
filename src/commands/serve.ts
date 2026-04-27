@@ -16,6 +16,11 @@ export function register(program: Command) {
     .action(async (options: { host: string; port: string }) => {
       printArcheBanner();
 
+      // Surface the resolved port to env so the dashboard snapshot's
+      // `services.serverUrl` reflects the real binding instead of the 8787
+      // default. This is what the worker process reads when probing.
+      process.env.ARCHE_SERVER_PORT = options.port;
+
       const { startServer } = await import("../server");
       await startServer({
         host: options.host,

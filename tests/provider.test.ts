@@ -5,32 +5,92 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import type { OpenResponsesResult } from "@openrouter/sdk/models";
+import {
+  ConnectionError,
+  OpenRouterError,
+  RequestTimeoutError,
+} from "@openrouter/sdk/models/errors";
+
 import { OpenRouterSdkProvider } from "../src/lib/arche/provider";
 
-function chatCompletionResponse(content: string) {
-  return new Response(
-    JSON.stringify({
-      id: "chatcmpl-test",
-      choices: [
-        {
-          index: 0,
-          finish_reason: "stop",
-          message: {
-            role: "assistant",
-            content,
-          },
-        },
-      ],
-      created: 1,
-      model: "test-model",
-      object: "chat.completion",
-      system_fingerprint: null,
+// Mock the @openrouter/sdk module so tests don't make real HTTP calls.
+// We mock callModel() directly — this is cleaner than faking SSE streams.
+const mockCallModel = vi.fn();
+vi.mock("@openrouter/sdk", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@openrouter/sdk")>();
+  return {
+    ...actual,
+    // Regular function (not arrow) so `new OpenRouter(...)` works as a constructor.
+    OpenRouter: vi.fn().mockImplementation(function () {
+      return {
+        callModel: mockCallModel,
+        models: { list: vi.fn().mockResolvedValue({ data: [] }) },
+        credits: { getCredits: vi.fn().mockResolvedValue({ data: { totalCredits: 0, totalUsage: 0 } }) },
+      };
     }),
-    {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
+  };
+});
+
+/** Build a minimal OpenResponsesResult for a given text content. */
+function responsesResult(text: string): OpenResponsesResult {
+  return {
+    id: "resp_test",
+    object: "response",
+    createdAt: 1700000000,
+    model: "test-model",
+    status: "completed",
+    completedAt: 1700000000,
+    output: [
+      {
+        type: "message",
+        id: "msg_test",
+        role: "assistant",
+        status: "completed",
+        content: [{ type: "output_text", text, annotations: [] }],
+      } as OpenResponsesResult["output"][number],
+    ],
+    outputText: text,
+    usage: {
+      inputTokens: 10,
+      inputTokensDetails: { cachedTokens: 0 },
+      outputTokens: text.length,
+      outputTokensDetails: { reasoningTokens: 0 },
+      totalTokens: 10 + text.length,
     },
-  );
+    error: null,
+    incompleteDetails: null,
+    instructions: null,
+    metadata: {},
+    tools: [],
+    toolChoice: "none" as never,
+    parallelToolCalls: false,
+    temperature: 0.1,
+    topP: 1.0,
+    presencePenalty: 0,
+    frequencyPenalty: 0,
+  };
+}
+
+/** Configure callModel mock to return the given text. */
+function mockLlmResponse(text: string) {
+  mockCallModel.mockReturnValue({
+    getResponse: vi.fn().mockResolvedValue(responsesResult(text)),
+    getText: vi.fn().mockResolvedValue(text),
+    getTextStream: (async function* () {})(),
+    getToolCallsStream: (async function* () {})(),
+  });
+}
+
+/** Configure callModel mock to throw on first call, succeed on second. */
+function mockLlmRetry(firstError: unknown, successText: string) {
+  mockCallModel
+    .mockReturnValueOnce({
+      getResponse: vi.fn().mockRejectedValue(firstError),
+    })
+    .mockReturnValue({
+      getResponse: vi.fn().mockResolvedValue(responsesResult(successText)),
+    });
 }
 
 describe("OpenRouterSdkProvider", () => {
@@ -39,6 +99,7 @@ describe("OpenRouterSdkProvider", () => {
   beforeEach(async () => {
     workspace = await mkdtemp(join(tmpdir(), "arche-provider-"));
     process.env.TEST_PROVIDER_KEY = "provider-token";
+    vi.clearAllMocks();
   });
 
   afterEach(async () => {
@@ -68,123 +129,67 @@ describe("OpenRouterSdkProvider", () => {
     });
   }
 
-  it("accepts raw JSON, fenced JSON, and noisy JSON payloads for executor actions", async () => {
-    const provider = makeProvider();
-    const payloads = [
-      `{"action":"finish","summary":"raw","implementedPlanDelta":"delta"}`,
-      "```json\n{\"action\":\"finish\",\"summary\":\"fenced\",\"implementedPlanDelta\":\"delta\"}\n```",
-      "I looked at it.\n{\"action\":\"finish\",\"summary\":\"noisy\",\"implementedPlanDelta\":\"delta\"}\nDone.",
-    ];
-
-    for (const payload of payloads) {
-      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(chatCompletionResponse(payload)));
-
-      const result = await provider.completeAction([{ role: "user", content: "return an action" }]);
-      expect(result.action).toMatchObject({
-        action: "finish",
-        implementedPlanDelta: "delta",
-      });
-    }
-  });
-
   it("captures request and response artifacts for each attempt", async () => {
     const provider = makeProvider();
+    const schema = z.object({ text: z.string() });
+    mockLlmResponse(`{"text":"ok"}`);
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(chatCompletionResponse(`{"action":"finish","summary":"ok","implementedPlanDelta":"delta"}`)),
-    );
-
-    const result = await provider.completeAction([{ role: "user", content: "return an action" }]);
+    const result = await provider.completeStructured([{ role: "user", content: "return json" }], schema);
 
     expect(result.attempts).toHaveLength(1);
+    // requestBody contains callModel params (Responses API / OpenResponses format)
     expect(result.attempts[0]).toMatchObject({
       requestBody: {
         model: "test-model",
-        messages: [{ role: "user", content: "return an action" }],
+        input: [{ role: "user", content: "return json" }],
         temperature: 0.1,
-        stream: false,
       },
       responseStatus: 200,
     });
-    expect(result.attempts[0]?.responseText).toContain(`"id":"chatcmpl-test"`);
+    // responseBody is the parsed OpenResponsesResult
     expect(result.attempts[0]?.responseBody).toMatchObject({
-      id: "chatcmpl-test",
+      id: "resp_test",
       model: "test-model",
+      outputText: expect.stringContaining("ok"),
     });
   });
 
-  it("keeps requests non-streaming even when extraBody asks for streaming", async () => {
-    const provider = makeProviderWithOverrides({
-      extraBody: {
-        stream: true,
-      },
-    });
+  it("callModel params are unaffected by stream key in extraBody", async () => {
+    const provider = makeProviderWithOverrides({ extraBody: { stream: true } });
+    const schema = z.object({ ok: z.boolean() });
+    mockLlmResponse(`{"ok":true}`);
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(chatCompletionResponse(`{"action":"finish","summary":"ok","implementedPlanDelta":"delta"}`)),
-    );
-
-    const result = await provider.completeAction([{ role: "user", content: "return an action" }]);
-
-    expect(result.attempts[0]?.requestBody).toMatchObject({
-      stream: false,
-    });
+    const result = await provider.completeStructured([{ role: "user", content: "return json" }], schema);
+    expect(result.output.ok).toBe(true);
   });
 
   it("retries one time on retryable provider failures", async () => {
     const provider = makeProvider();
-
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce(new Response("upstream error", { status: 500, headers: { "Content-Type": "text/plain" } }))
-        .mockResolvedValueOnce(
-          chatCompletionResponse(`{"action":"finish","summary":"retried","implementedPlanDelta":"delta"}`),
-        ),
-    );
-
-    const result = await provider.completeAction([{ role: "user", content: "return an action" }]);
-    expect(result.action).toMatchObject({
-      action: "finish",
-      summary: "retried",
+    const schema = z.object({ text: z.string() });
+    const retryableError = new OpenRouterError("upstream error", {
+      response: new Response("upstream error", { status: 500 }),
+      request: new Request("https://dummy.test"),
+      body: "upstream error",
     });
+    mockLlmRetry(retryableError, `{"text":"retried"}`);
+
+    const result = await provider.completeStructured([{ role: "user", content: "return json" }], schema);
+    expect(result.output.text).toBe("retried");
+    expect(result.attempts).toHaveLength(2);
   });
 
   it("retries one time on rate-limited OpenRouter responses", async () => {
     const provider = makeProvider();
-
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce(
-          new Response(
-            JSON.stringify({
-              error: {
-                message: "rate limited",
-                code: 429,
-              },
-            }),
-            {
-              status: 429,
-              headers: { "Content-Type": "application/json" },
-            },
-          ),
-        )
-        .mockResolvedValueOnce(
-          chatCompletionResponse(`{"action":"finish","summary":"retried-after-429","implementedPlanDelta":"delta"}`),
-        ),
-    );
-
-    const result = await provider.completeAction([{ role: "user", content: "return an action" }]);
-
-    expect(result.action).toMatchObject({
-      action: "finish",
-      summary: "retried-after-429",
+    const schema = z.object({ text: z.string() });
+    const rateLimitError = new OpenRouterError("rate limited", {
+      response: new Response('{"error":{"code":429}}', { status: 429 }),
+      request: new Request("https://dummy.test"),
+      body: '{"error":{"code":429}}',
     });
+    mockLlmRetry(rateLimitError, `{"text":"retried-after-429"}`);
+
+    const result = await provider.completeStructured([{ role: "user", content: "return json" }], schema);
+    expect(result.output.text).toBe("retried-after-429");
     expect(result.attempts).toHaveLength(2);
   });
 
@@ -197,69 +202,63 @@ describe("OpenRouterSdkProvider", () => {
       needsHumanInput: z.boolean(),
     });
 
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce(chatCompletionResponse("not valid json"))
-        .mockResolvedValueOnce(
-          chatCompletionResponse(
-            JSON.stringify({
-              planMarkdown: "1. Inspect popup\n2. Ship fix",
-              risks: [],
-              openQuestions: [],
-              needsHumanInput: false,
-            }),
-          ),
+    mockCallModel
+      .mockReturnValueOnce({ getResponse: vi.fn().mockResolvedValue(responsesResult("not valid json")) })
+      .mockReturnValue({
+        getResponse: vi.fn().mockResolvedValue(
+          responsesResult(JSON.stringify({
+            planMarkdown: "1. Inspect popup\n2. Ship fix",
+            risks: [],
+            openQuestions: [],
+            needsHumanInput: false,
+          })),
         ),
-    );
+      });
 
     const result = await provider.completeStructured([{ role: "user", content: "return plan json" }], schema);
     expect(result.output.planMarkdown).toContain("Inspect popup");
     expect(result.attempts).toHaveLength(2);
   });
 
-  it("rejects invalid provider actions after parsing", async () => {
+  it("rejects invalid structured JSON after repair attempt", async () => {
     const provider = makeProvider();
+    const schema = z.object({ required: z.string() });
+    mockCallModel
+      .mockReturnValue({ getResponse: vi.fn().mockResolvedValue(responsesResult("not valid json at all")) });
 
-    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => chatCompletionResponse(`{"action":"unknown"}`)));
-
-    await expect(provider.completeAction([{ role: "user", content: "return an action" }])).rejects.toMatchObject({
+    await expect(
+      provider.completeStructured([{ role: "user", content: "return json" }], schema),
+    ).rejects.toMatchObject({
       code: "provider_output_invalid",
     });
   });
 
   it("maps SDK timeout errors to provider_request_timeout", async () => {
     const provider = makeProvider();
+    const schema = z.object({ text: z.string() });
+    const timeoutError = new RequestTimeoutError("timed out");
+    mockCallModel.mockReturnValue({ getResponse: vi.fn().mockRejectedValue(timeoutError) });
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(
-        Object.assign(new Error("Request timed out"), {
-          name: "TimeoutError",
-        }),
-      ),
-    );
-
-    await expect(provider.completeAction([{ role: "user", content: "return an action" }])).rejects.toMatchObject({
+    await expect(
+      provider.completeStructured([{ role: "user", content: "return json" }], schema),
+    ).rejects.toMatchObject({
       code: "provider_request_timeout",
     });
   });
 
   it("maps non-retryable HTTP errors to provider_request_failed", async () => {
     const provider = makeProvider();
+    const schema = z.object({ text: z.string() });
+    const badRequestError = new OpenRouterError("bad request", {
+      response: new Response("bad request", { status: 400 }),
+      request: new Request("https://dummy.test"),
+      body: "bad request",
+    });
+    mockCallModel.mockReturnValue({ getResponse: vi.fn().mockRejectedValue(badRequestError) });
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response("bad request", {
-          status: 400,
-          headers: { "Content-Type": "text/plain" },
-        }),
-      ),
-    );
-
-    await expect(provider.completeAction([{ role: "user", content: "return an action" }])).rejects.toMatchObject({
+    await expect(
+      provider.completeStructured([{ role: "user", content: "return json" }], schema),
+    ).rejects.toMatchObject({
       code: "provider_request_failed",
     });
   });
@@ -268,9 +267,7 @@ describe("OpenRouterSdkProvider", () => {
     const provider = makeProvider();
     await writeFile(join(workspace, "large.txt"), "a".repeat(80_000), "utf8");
 
-    const result = await provider.readFiles({
-      files: [{ path: "large.txt", offset: 1024, limit: 4096 }],
-    });
+    const result = await provider.readFiles({ files: [{ path: "large.txt", offset: 1024, limit: 4096 }] });
 
     expect(result.files).toHaveLength(1);
     expect(result.files[0]).toMatchObject({
@@ -288,13 +285,9 @@ describe("OpenRouterSdkProvider", () => {
     const filePath = join(workspace, "dedup.txt");
     await writeFile(filePath, "cached content", "utf8");
 
-    const first = await provider.readFiles({
-      files: [{ path: "dedup.txt", offset: 0, limit: 32 }],
-    });
+    const first = await provider.readFiles({ files: [{ path: "dedup.txt", offset: 0, limit: 32 }] });
     await rm(filePath, { force: true });
-    const second = await provider.readFiles({
-      files: [{ path: "dedup.txt", offset: 0, limit: 32 }],
-    });
+    const second = await provider.readFiles({ files: [{ path: "dedup.txt", offset: 0, limit: 32 }] });
 
     expect(first).toEqual(second);
   });
@@ -303,11 +296,7 @@ describe("OpenRouterSdkProvider", () => {
     const provider = makeProvider();
     const result = await provider.writeFile("new-file.txt", "hello world");
 
-    expect(result).toMatchObject({
-      result: "file_written",
-      path: "new-file.txt",
-      created: true,
-    });
+    expect(result).toMatchObject({ result: "file_written", path: "new-file.txt", created: true });
     expect(result.bytes_written).toBeGreaterThan(0);
 
     const content = await readFile(join(workspace, "new-file.txt"), "utf8");

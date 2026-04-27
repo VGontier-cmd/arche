@@ -53,6 +53,14 @@ export type ReviewFinding = {
   file?: string | null;
 };
 
+export type PlanProposal = {
+  approach: "conservative" | "balanced" | "thorough";
+  planMarkdown: string;
+  risks: string[];
+  openQuestions: string[];
+  estimatedSteps: number;
+};
+
 export type DashboardRun = {
   id: string;
   source: string;
@@ -66,6 +74,7 @@ export type DashboardRun = {
   currentRole: string | null;
   currentCycle: number;
   planMarkdown: string | null;
+  planProposals: PlanProposal[] | null;
   planRisks: string[];
   pendingQuestion: string | null;
   latestFindings: ReviewFinding[];
@@ -99,6 +108,8 @@ export type DashboardTask = {
 export type DashboardTimelineItem = {
   id: string;
   source: "message" | "event" | "command" | "log" | "task";
+  /** Message kind when source === "message" (e.g. "action", "plan", "review", "error"). */
+  kind?: string | null;
   timestamp: string | null;
   title: string;
   detail: string | null;
@@ -118,6 +129,7 @@ export type Repository = {
   gitlabProjectId: string | null;
   allowedCommands: string[];
   validationCommands: string[];
+  instructions: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -207,7 +219,35 @@ export type RunDetailSnapshot = {
   timelineTotal: number;
 };
 
-export type AppView = "runs" | "repositories" | "rules" | "settings" | "schedules";
+export type AppView = "runs" | "repositories" | "rules" | "settings" | "schedules" | "metrics";
+
+export type CostEstimate = {
+  estimatedCostUsd: number | null;
+  basedOnRuns: number;
+  repoName: string | null;
+};
+
+export type RepoMetrics = {
+  repoName: string;
+  totalRuns: number;
+  successfulRuns: number;
+  successRate: number;
+  totalCostUsd: number;
+  avgDurationMs: number;
+};
+
+export type MetricsSummary = {
+  totalRuns: number;
+  successfulRuns: number;
+  failedRuns: number;
+  successRate: number;
+  totalCostUsd: number;
+  avgCostUsd: number;
+  avgDurationMs: number;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  byRepo: RepoMetrics[];
+};
 
 export type RunSchedule = {
   id: string;

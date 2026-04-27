@@ -10,10 +10,25 @@ import type { JiraIssue } from "../types";
 import { appendRunEvent, appendRunMessage, appendSystemRunLog, transitionRun } from "./run-writer";
 import { getRunById } from "./run-queries";
 import { getRepositoryById } from "./repositories";
-import { ensurePlannerOutput, getLatestTaskForRole } from "./run-tasks";
+import { getLatestTaskForRole } from "./run-tasks";
+
+const TERMINAL_RUN_STATUSES = new Set([
+  "success",
+  "pushed",
+  "failed",
+  "cancelled",
+  "publish_rejected",
+]);
 
 export async function cancelRun(runId: string) {
   const run = await getRunById(runId);
+  // Already terminal — refuse instead of silently flipping cancel_requested on
+  // a finished run, which would mislead future readers and produce empty events.
+  if (TERMINAL_RUN_STATUSES.has(run.status)) {
+    throw new ExternalServiceError(
+      `Run ${runId} is already in terminal state ${run.status}`,
+    );
+  }
   if (
     run.status === "pending" ||
     run.status === "awaiting_plan_approval" ||
@@ -37,13 +52,56 @@ export async function cancelRun(runId: string) {
   return updated;
 }
 
-export async function approvePlan(runId: string) {
+export async function approvePlan(runId: string, proposalIndex?: number) {
   const run = await getRunById(runId);
   if (run.status !== "awaiting_plan_approval") {
     throw new ExternalServiceError(`Run ${runId} is not awaiting plan approval`);
   }
-  const latestPlannerTask = await getLatestTaskForRole(runId, "planner");
-  const plannerOutput = ensurePlannerOutput(latestPlannerTask);
+
+  // If proposals exist and an index is provided, use the selected proposal
+  let planMarkdown = run.planMarkdown;
+  let planRisks = run.planRisks;
+  let planOpenQuestions = run.planOpenQuestions;
+
+  if (run.planProposals && proposalIndex !== undefined) {
+    const proposal = run.planProposals[proposalIndex];
+    if (!proposal) {
+      throw new ExternalServiceError(`Proposal index ${proposalIndex} is out of range`);
+    }
+    planMarkdown = proposal.planMarkdown;
+    planRisks = proposal.risks;
+    planOpenQuestions = proposal.openQuestions;
+  }
+
+  // Backwards-compat: legacy runs / older fixtures only stored the plan in the
+  // planner task's outputJson (sometimes in the pre-proposals flat shape). Fall
+  // back to that when the run row doesn't carry the plan directly. We accept
+  // both the new `proposals[].planMarkdown` shape and the legacy flat shape
+  // without forcing strict schema validation, since old DB rows predate the
+  // current schema.
+  if (!planMarkdown) {
+    const latestPlannerTask = await getLatestTaskForRole(runId, "planner");
+    const raw = latestPlannerTask?.outputJson as
+      | {
+          planMarkdown?: string;
+          risks?: string[];
+          openQuestions?: string[];
+          proposals?: Array<{ planMarkdown?: string; risks?: string[]; openQuestions?: string[] }>;
+        }
+      | null
+      | undefined;
+    if (raw) {
+      const flat = typeof raw.planMarkdown === "string" ? raw : null;
+      const firstProposal = Array.isArray(raw.proposals) ? raw.proposals[0] : null;
+      const source = flat ?? firstProposal;
+      if (source) {
+        planMarkdown = source.planMarkdown ?? planMarkdown;
+        planRisks = (source.risks ?? planRisks) as typeof planRisks;
+        planOpenQuestions = (source.openQuestions ?? planOpenQuestions) as typeof planOpenQuestions;
+      }
+    }
+  }
+
   const [updated] = await withSqliteWriteRetry(() =>
     db
       .update(runs)
@@ -51,9 +109,9 @@ export async function approvePlan(runId: string) {
         status: "pending",
         currentRole: "executor",
         currentCycle: 1,
-        planMarkdown: plannerOutput.planMarkdown,
-        planRisks: plannerOutput.risks,
-        planOpenQuestions: plannerOutput.openQuestions,
+        planMarkdown,
+        planRisks,
+        planOpenQuestions,
         pendingQuestion: null,
         latestHumanResponse: null,
         updatedAt: new Date(),
@@ -61,8 +119,8 @@ export async function approvePlan(runId: string) {
       .where(eq(runs.id, runId))
       .returning(),
   );
-  await appendRunEvent(runId, "run.plan_approved");
-  await appendSystemRunLog(runId, "plan approved; queued for execution");
+  await appendRunEvent(runId, "run.plan_approved", { proposalIndex: proposalIndex ?? "default" });
+  await appendSystemRunLog(runId, `plan approved (${proposalIndex !== undefined ? run.planProposals?.[proposalIndex]?.approach ?? "selected" : "default"}); queued for execution`);
   return updated;
 }
 
@@ -95,6 +153,14 @@ export async function forceApprove(runId: string) {
   const run = await getRunById(runId);
   if (run.status !== "needs_human_input") {
     throw new ExternalServiceError(`Run ${runId} is not in needs_human_input state`);
+  }
+  // Refuse force-approval when there is nothing to publish — protects against
+  // accidentally pushing an empty branch (e.g. after planner-stage human input).
+  const diff = (run.diffExcerpt ?? "").trim();
+  if (!diff) {
+    throw new ExternalServiceError(
+      `Cannot force-approve run ${runId}: no diff captured (worktree empty or executor never ran)`,
+    );
   }
   const [updated] = await withSqliteWriteRetry(() =>
     db

@@ -13,15 +13,15 @@ export const EMPTY_FILTERS: FilterState = {
 };
 
 const ALL_STATUSES = [
-  { value: "pending", label: "Pending", color: "#8b949e" },
-  { value: "awaiting_plan_approval", label: "Plan Approval", color: "#d29922" },
-  { value: "executing", label: "Executing", color: "#58a6ff" },
-  { value: "needs_human_input", label: "Human Input", color: "#d29922" },
-  { value: "awaiting_publish_approval", label: "Publish Approval", color: "#d29922" },
-  { value: "success", label: "Success", color: "#3fb950" },
-  { value: "pushed", label: "Pushed", color: "#3fb950" },
-  { value: "failed", label: "Failed", color: "#f85149" },
-  { value: "cancelled", label: "Cancelled", color: "#8b949e" },
+  { value: "pending",                   label: "Queued",          color: "#8b949e" },
+  { value: "awaiting_plan_approval",    label: "Plan ready",      color: "#d29922" },
+  { value: "executing",                 label: "Executing…",      color: "#58a6ff" },
+  { value: "needs_human_input",         label: "Waiting for you", color: "#d29922" },
+  { value: "awaiting_publish_approval", label: "Ready to ship",   color: "#d29922" },
+  { value: "success",                   label: "Success",         color: "#3fb950" },
+  { value: "pushed",                    label: "Shipped",         color: "#3fb950" },
+  { value: "failed",                    label: "Failed",          color: "#f85149" },
+  { value: "cancelled",                 label: "Cancelled",       color: "#8b949e" },
 ];
 
 const PERIODS: Array<{ value: FilterState["period"]; label: string }> = [

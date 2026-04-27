@@ -213,6 +213,21 @@ export async function initSchema() {
     );
   `));
 
+  // Live SDK stream events emitted by the worker for the SSE endpoint to relay
+  // to the dashboard. Worker and server run as separate processes so SQLite is
+  // the IPC channel here. Rows are pruned by pruneRunHistory().
+  await withSqliteWriteRetry(() => db.run(sql`
+    create table if not exists agent_stream_events (
+      id integer primary key autoincrement,
+      run_id text not null references runs(id) on delete cascade,
+      payload text not null,
+      created_at integer not null default (cast((julianday('now') - 2440587.5)*86400000 as integer))
+    );
+  `));
+  await withSqliteWriteRetry(() => db.run(sql`
+    create index if not exists agent_stream_events_run_id_idx on agent_stream_events(run_id, id);
+  `));
+
   await ensureColumn("runs", "worktree_retained", "alter table runs add column worktree_retained integer not null default 0");
   await ensureColumn("runs", "artifacts_path", "alter table runs add column artifacts_path text");
   await ensureColumn("runs", "worker_id", "alter table runs add column worker_id text");
@@ -245,6 +260,10 @@ export async function initSchema() {
   await ensureColumn("run_tasks", "completion_tokens", "alter table run_tasks add column completion_tokens integer");
   await ensureColumn("run_tasks", "estimated_cost_usd", "alter table run_tasks add column estimated_cost_usd text");
   await ensureColumn("run_messages", "thinking_excerpt", "alter table run_messages add column thinking_excerpt text");
+  await ensureColumn("repositories", "instructions", "alter table repositories add column instructions text");
+  await ensureColumn("repositories", "enabled_tools", "alter table repositories add column enabled_tools text");
+  await ensureColumn("runs", "plan_proposals", "alter table runs add column plan_proposals text");
+  await ensureColumn("runs", "research_summary", "alter table runs add column research_summary text");
 
   await withSqliteWriteRetry(() => db.run(sql`create index if not exists runs_ticket_key_idx on runs(ticket_key);`));
   await withSqliteWriteRetry(() => db.run(sql`create index if not exists runs_status_idx on runs(status);`));

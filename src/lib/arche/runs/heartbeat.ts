@@ -1,7 +1,9 @@
+import { ExternalServiceError } from "../errors";
 import { heartbeatWorker } from "../workers";
 
 const MIN_RUN_HEARTBEAT_INTERVAL_MS = 250;
 const MAX_RUN_HEARTBEAT_INTERVAL_MS = 30_000;
+const MAX_TRANSIENT_HEARTBEAT_FAILURES = 2;
 
 export type RunOwnershipHeartbeatInput = {
   runId: string;
@@ -27,6 +29,11 @@ function computeRunHeartbeatIntervalMs(leaseTtlSeconds: number) {
   );
 }
 
+function isOwnershipLostError(error: unknown): boolean {
+  if (!(error instanceof ExternalServiceError)) return false;
+  return error.code === "lease_lost" || error.code === "lock_lost";
+}
+
 export function startRunOwnershipHeartbeat(
   input: RunOwnershipHeartbeatInput,
   deps: RunOwnershipHeartbeatDeps,
@@ -35,6 +42,7 @@ export function startRunOwnershipHeartbeat(
   let stopped = false;
   let inFlight: Promise<void> | null = null;
   let failure: unknown = null;
+  let consecutiveFailures = 0;
 
   const beat = async () => {
     if (stopped || inFlight || failure) {
@@ -51,8 +59,16 @@ export function startRunOwnershipHeartbeat(
         heartbeatWorker(input.workerId),
       ]);
     })()
+      .then(() => {
+        consecutiveFailures = 0;
+      })
       .catch((error) => {
-        failure = error;
+        consecutiveFailures += 1;
+        // Ownership-loss errors are non-recoverable: surface immediately so the
+        // worker stops touching a run it no longer owns.
+        if (isOwnershipLostError(error) || consecutiveFailures > MAX_TRANSIENT_HEARTBEAT_FAILURES) {
+          failure = error;
+        }
       })
       .finally(() => {
         inFlight = null;
@@ -64,8 +80,23 @@ export function startRunOwnershipHeartbeat(
     }
   };
 
+  // CRITICAL: the interval callback MUST swallow rejections itself. If we
+  // simply `void beat()` a promise that rejects (lease_lost, DB error,
+  // network blip), Node 20+ flags it as an unhandled rejection and — by
+  // default in Node 22 — terminates the entire worker process. The failure
+  // is already recorded on the `failure` ref so the next caller-driven
+  // `prime()` / `stop()` can surface it; the timer's job is just to keep
+  // the lease alive in the background, never to escalate.
   const timer = setInterval(() => {
-    void beat();
+    if (stopped || failure) {
+      // Ownership already lost or stop requested — nothing useful to do.
+      // We don't clearInterval() here because stop() owns the lifecycle.
+      return;
+    }
+    beat().catch(() => {
+      // Swallow — `failure` was set inside beat()'s own .catch(), and
+      // re-throwing here would crash the worker process.
+    });
   }, intervalMs);
   timer.unref?.();
 
