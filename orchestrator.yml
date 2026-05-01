@@ -11,6 +11,7 @@ worker:
   lease_ttl_seconds: 900
   max_agent_steps: 8
   max_run_seconds: 1200
+  human_input_timeout_hours: 24
 policy:
   assignee: agent-dev
   required_status: In Progress
@@ -35,51 +36,36 @@ sandbox:
   pids_limit: 256
   memory_limit_mb: 2048
   cpus: "2"
-  env_allowlist:
-    - USER_OPENROUTER_API_KEY
+  env_allowlist: []
   user: ""
 defaults:
-  allowed_commands:
-    - pwd
-    - ls
-    - find
-    - cat
-    - grep
-    - git status
-    - git diff
-    - pnpm install
-    - pnpm lint
-    - pnpm test
-    - pnpm typecheck
-    - pnpm build
-  validation_commands:
-    - pnpm lint
-    - pnpm test
-    - pnpm typecheck
+  allowed_commands: []
+  validation_commands: []
 routing:
   default_repository: null
 git:
   branch_prefix: arche/
 workflow:
   mode: plan_execute_review
-  max_review_cycles: 3
   require_plan_approval: true
   require_publish_approval: true
+  auto_create_mr: false
 executors:
   defaults:
     planner: default
     executor: default
     reviewer: default
   profiles:
-    # Default stack: OpenRouter (OpenAI-compatible HTTP API at openrouter.ai).
     default:
       driver: openai_compatible_api
       base_url: https://openrouter.ai/api/v1
       model: openai/gpt-5.4-mini
       api_key_env: USER_OPENROUTER_API_KEY
-      timeout_seconds: 120
-      max_actions: 8
+      timeout_seconds: 60
+      max_actions: 20
       temperature: 0.1
+      thinking_enabled: false
+      thinking_budget_tokens: 5000
 bootstrap:
   repositories: []
   repo_rules: []

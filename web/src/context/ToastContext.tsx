@@ -39,10 +39,25 @@ type ToastApi = {
 
 const ToastContext = createContext<ToastApi | null>(null);
 
-const TYPE_COLORS: Record<ToastType, { bg: string; border: string; text: string }> = {
-  success: { bg: "bg-[#0d1117]", border: "border-[#238636]", text: "text-[#3fb950]" },
-  error: { bg: "bg-[#0d1117]", border: "border-[#da3633]", text: "text-[#f85149]" },
-  info: { bg: "bg-[#0d1117]", border: "border-[#1f6feb]", text: "text-[#58a6ff]" },
+const TYPE_TONE: Record<
+  ToastType,
+  { borderColor: string; color: string; glow: string }
+> = {
+  success: {
+    borderColor: "var(--c-success-fg)",
+    color: "var(--c-success-fg)",
+    glow: "var(--glow-success)",
+  },
+  error: {
+    borderColor: "var(--c-error-fg)",
+    color: "var(--c-error-fg)",
+    glow: "var(--glow-error)",
+  },
+  info: {
+    borderColor: "var(--c-blue-400)",
+    color: "var(--c-blue-200)",
+    glow: "var(--glow-blue)",
+  },
 };
 
 export function ToastProvider({ children }: { children: ReactNode }) {
@@ -90,12 +105,32 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {createPortal(
         <div aria-live="polite" aria-atomic="false" className="fixed top-4 right-4 z-[200] flex flex-col gap-2 pointer-events-none">
           {toasts.map((t) => {
-            const c = TYPE_COLORS[t.type];
+            const tone = TYPE_TONE[t.type];
             return (
               <div
                 key={t.id}
+                role="status"
                 onClick={() => remove(t.id)}
-                className={`pointer-events-auto cursor-pointer px-4 py-2.5 rounded-[var(--rounded-box)] border ${c.bg} ${c.border} ${c.text} text-xs font-medium shadow-lg max-w-[360px] animate-[slideIn_0.2s_ease-out]`}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    remove(t.id);
+                  }
+                }}
+                tabIndex={0}
+                className="pointer-events-auto cursor-pointer"
+                style={{
+                  background: "var(--surface-1)",
+                  border: `1px solid ${tone.borderColor}`,
+                  color: tone.color,
+                  padding: "10px 14px",
+                  borderRadius: "var(--radius-md)",
+                  fontSize: "var(--text-body-sm)",
+                  fontWeight: 500,
+                  maxWidth: 360,
+                  boxShadow: `${tone.glow}, 0 12px 24px rgba(0, 0, 0, 0.4)`,
+                  animation: "slideIn 200ms var(--ease-out)",
+                }}
               >
                 {t.message}
               </div>

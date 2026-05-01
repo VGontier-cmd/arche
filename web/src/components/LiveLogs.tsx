@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 type LogEntry = {
   id: number;
@@ -7,9 +8,21 @@ type LogEntry = {
   timestamp: string | null;
 };
 
-const TERMINAL_STATUSES = new Set(["success", "pushed", "failed", "cancelled", "publish_rejected"]);
+const TERMINAL_STATUSES = new Set([
+  "success",
+  "pushed",
+  "failed",
+  "cancelled",
+  "publish_rejected",
+]);
 
-export function LiveLogs({ runId, runStatus }: { runId: string; runStatus: string }) {
+export function LiveLogs({
+  runId,
+  runStatus,
+}: {
+  runId: string;
+  runStatus: string;
+}) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [expanded, setExpanded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -20,7 +33,6 @@ export function LiveLogs({ runId, runStatus }: { runId: string; runStatus: strin
   useEffect(() => {
     setLogs([]);
     if (!isActive) return;
-
     const es = new EventSource(`/v1/runs/${runId}/logs/stream`);
     es.onmessage = (event) => {
       const log: LogEntry = JSON.parse(event.data);
@@ -29,7 +41,6 @@ export function LiveLogs({ runId, runStatus }: { runId: string; runStatus: strin
     return () => es.close();
   }, [runId, isActive]);
 
-  // Auto-scroll
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || !autoScrollRef.current) return;
@@ -45,33 +56,106 @@ export function LiveLogs({ runId, runStatus }: { runId: string; runStatus: strin
   if (!isActive && logs.length === 0) return null;
 
   return (
-    <div className="mb-5">
+    <section style={{ marginBottom: 20 }}>
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-1.5 text-[11px] font-semibold text-[var(--fg2)] uppercase tracking-wide mb-2 hover:text-[var(--color-base-content)] transition-colors"
+        aria-expanded={expanded}
+        className="flex items-center"
+        style={{
+          gap: 6,
+          fontSize: "var(--text-label-md)",
+          fontWeight: 700,
+          color: "var(--c-fog-300)",
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          marginBottom: 8,
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
+          fontFamily: "inherit",
+          transition: "color var(--dur-fast) var(--ease-out)",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.color = "var(--c-fog-100)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.color = "var(--c-fog-300)";
+        }}
       >
-        <span className={`transition-transform ${expanded ? "rotate-90" : ""}`}>{"\u25B6"}</span>
+        {expanded ? (
+          <ChevronDown size={11} strokeWidth={2.5} aria-hidden="true" />
+        ) : (
+          <ChevronRight size={11} strokeWidth={2.5} aria-hidden="true" />
+        )}
         Live Logs
         {isActive && (
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#3fb950] animate-pulse ml-1" />
+          <span
+            aria-hidden="true"
+            style={{
+              display: "inline-block",
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: "var(--c-success-fg)",
+              animation: "pulse 1.4s var(--ease-in-out) infinite",
+              boxShadow: "0 0 6px rgba(95, 209, 122, 0.6)",
+              marginLeft: 4,
+            }}
+          />
         )}
-        <span className="font-normal text-[var(--fg3)]">({logs.length})</span>
+        <span
+          style={{
+            fontWeight: 400,
+            color: "var(--c-steel-300)",
+            textTransform: "none",
+            letterSpacing: 0,
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          ({logs.length})
+        </span>
       </button>
       {expanded && (
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className="bg-[#0d1117] border border-[var(--border-color)] rounded-[var(--rounded-box)] p-3 font-mono text-[11px] leading-[1.6] max-h-[400px] overflow-y-auto"
+          style={{
+            background: "var(--surface-0)",
+            border: "1px solid var(--hairline)",
+            borderRadius: "var(--radius-md)",
+            padding: 12,
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+            lineHeight: 1.6,
+            maxHeight: 400,
+            overflowY: "auto",
+          }}
         >
           {logs.length === 0 ? (
-            <span className="text-[var(--fg3)]">Waiting for logs...</span>
+            <span style={{ color: "var(--c-steel-300)" }}>Waiting for logs…</span>
           ) : (
             logs.map((log) => (
-              <div key={log.id} className="flex gap-2">
-                <span className={log.stream === "stderr" ? "text-[#f85149]" : "text-[#8b949e]"}>
+              <div key={log.id} className="flex" style={{ gap: 8 }}>
+                <span
+                  style={{
+                    color:
+                      log.stream === "stderr"
+                        ? "var(--c-error-fg)"
+                        : "var(--c-steel-300)",
+                    fontWeight: 700,
+                    flexShrink: 0,
+                    width: 30,
+                  }}
+                >
                   {log.stream === "stderr" ? "ERR" : "OUT"}
                 </span>
-                <span className="text-[var(--color-base-content)] whitespace-pre-wrap break-all">
+                <span
+                  style={{
+                    color: "var(--c-fog-100)",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-all",
+                  }}
+                >
                   {log.message}
                 </span>
               </div>
@@ -79,6 +163,6 @@ export function LiveLogs({ runId, runStatus }: { runId: string; runStatus: strin
           )}
         </div>
       )}
-    </div>
+    </section>
   );
 }

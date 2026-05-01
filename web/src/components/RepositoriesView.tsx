@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { FolderGit2 } from "lucide-react";
 import type { Repository } from "../types";
 import { splitLines } from "../lib/format";
 import {
@@ -8,7 +9,12 @@ import {
   deleteRepositoryApi,
 } from "../api/client";
 import { useToast } from "../context/ToastContext";
-import { useFocusTrap } from "../hooks/useFocusTrap";
+import { Card } from "./ui/Card";
+import { Button } from "./ui/Button";
+import { Badge } from "./ui/Badge";
+import { Input, Textarea, Checkbox } from "./ui/Input";
+import { Modal, ModalTitle, ModalActions } from "./Modal";
+import { ConfirmModal } from "./ConfirmModal";
 
 type FormData = {
   name: string;
@@ -66,13 +72,17 @@ export function RepositoriesView() {
       const data = await fetchRepositories();
       setRepos(data);
     } catch (e) {
-      toast.error("Failed to load repositories: " + (e instanceof Error ? e.message : e));
+      toast.error(
+        "Failed to load repositories: " + (e instanceof Error ? e.message : e),
+      );
     } finally {
       setLoading(false);
     }
   }, [toast]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const handleCreate = () => {
     setForm(emptyForm);
@@ -145,70 +155,178 @@ export function RepositoriesView() {
 
   if (loading) {
     return (
-      <div className="p-5 max-w-4xl space-y-3">
+      <div
+        style={{
+          padding: 28,
+          maxWidth: 960,
+          margin: "0 auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+        }}
+      >
         {Array.from({ length: 3 }, (_, i) => (
-          <div key={i} className="bg-[var(--color-base-200)] border border-[var(--border-color)] rounded-[var(--rounded-box)] p-4 space-y-3">
-            <div className="animate-pulse rounded bg-[var(--color-base-300)] h-4 w-1/3" />
-            <div className="animate-pulse rounded bg-[var(--color-base-300)] h-3 w-2/3" />
-            <div className="animate-pulse rounded bg-[var(--color-base-300)] h-3 w-1/2" />
-          </div>
+          <div
+            key={i}
+            className="animate-pulse"
+            style={{
+              background: "var(--surface-1)",
+              border: "1px solid var(--hairline)",
+              borderRadius: "var(--radius-md)",
+              padding: 16,
+              height: 92,
+            }}
+          />
         ))}
       </div>
     );
   }
 
   return (
-    <div className="p-5 max-w-4xl">
-      <div className="flex items-center justify-between mb-5">
-        <h2 className="text-sm font-semibold text-[var(--color-base-content)]">
-          Repositories ({repos.length})
+    <div style={{ padding: 28, maxWidth: 960, margin: "0 auto" }}>
+      <div
+        className="flex items-center justify-between"
+        style={{ marginBottom: 20 }}
+      >
+        <h2
+          style={{
+            fontFamily: "var(--font-display)",
+            fontSize: "var(--text-display-md)",
+            fontWeight: 700,
+            letterSpacing: "-0.015em",
+            color: "var(--c-bone)",
+          }}
+        >
+          Repositories
+          <Badge tone="neutral" size="md" style={{ marginLeft: 10 }}>
+            {repos.length}
+          </Badge>
         </h2>
-        <button className="btn-primary" onClick={handleCreate}>+ Add Repository</button>
+        <Button variant="primary" onClick={handleCreate}>
+          Add Repository
+        </Button>
       </div>
 
       {repos.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-center">
-          <div className="text-3xl mb-3 opacity-40">{"\u2630"}</div>
-          <h3 className="text-sm font-semibold text-[var(--color-base-content)] mb-1">No repositories</h3>
-          <p className="text-xs text-[var(--fg2)] mb-4">Add your first Git repository to start processing tickets.</p>
-          <button className="btn-primary" onClick={handleCreate}>+ Add Repository</button>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {repos.map((repo) => (
-            <div
-              key={repo.id}
-              className="bg-[var(--color-base-200)] border border-[var(--border-color)] rounded-[var(--rounded-box)] p-4"
+        <Card tone="default" padding={6}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              padding: "24px 16px",
+              textAlign: "center",
+            }}
+          >
+            <FolderGit2
+              size={32}
+              strokeWidth={1.5}
+              aria-hidden="true"
+              style={{ color: "var(--c-steel-300)", marginBottom: 12 }}
+            />
+            <h3
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: "var(--text-heading-lg)",
+                fontWeight: 700,
+                color: "var(--c-bone)",
+                marginBottom: 6,
+              }}
             >
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-semibold text-sm text-[var(--color-base-content)]">{repo.name}</span>
-                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${repo.enabled ? "bg-[#3fb95020] text-[#3fb950]" : "bg-[#f8514920] text-[#f85149]"}`}>
+              No repositories
+            </h3>
+            <p
+              style={{
+                fontSize: "var(--text-body-sm)",
+                color: "var(--c-fog-300)",
+                marginBottom: 16,
+              }}
+            >
+              Add your first Git repository to start processing tickets.
+            </p>
+            <Button variant="primary" onClick={handleCreate}>
+              Add Repository
+            </Button>
+          </div>
+        </Card>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {repos.map((repo) => (
+            <Card key={repo.id} tone="default" padding={4}>
+              <div
+                className="flex items-start justify-between"
+                style={{ gap: 16 }}
+              >
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div
+                    className="flex items-center"
+                    style={{ gap: 8, marginBottom: 6, flexWrap: "wrap" }}
+                  >
+                    <span
+                      style={{
+                        fontFamily: "var(--font-display)",
+                        fontSize: "var(--text-heading-md)",
+                        fontWeight: 700,
+                        letterSpacing: "-0.005em",
+                        color: "var(--c-bone)",
+                      }}
+                    >
+                      {repo.name}
+                    </span>
+                    <Badge tone={repo.enabled ? "success" : "danger"}>
                       {repo.enabled ? "enabled" : "disabled"}
-                    </span>
-                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#58a6ff20] text-[#58a6ff] font-medium">
-                      {repo.gitProvider}
-                    </span>
+                    </Badge>
+                    <Badge tone="primary">{repo.gitProvider}</Badge>
                   </div>
-                  <div className="text-[11px] text-[var(--fg2)] break-all">{repo.remoteUrl}</div>
-                  <div className="flex gap-4 mt-2 text-[10px] text-[var(--fg3)]">
+                  <div
+                    style={{
+                      fontSize: "var(--text-body-sm)",
+                      color: "var(--c-fog-300)",
+                      wordBreak: "break-all",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
+                    {repo.remoteUrl}
+                  </div>
+                  <div
+                    className="flex flex-wrap"
+                    style={{
+                      gap: 16,
+                      marginTop: 8,
+                      fontSize: "var(--text-label-md)",
+                      color: "var(--c-steel-300)",
+                    }}
+                  >
                     <span>Branch: {repo.defaultBranch}</span>
                     <span>Commands: {(repo.allowedCommands || []).length}</span>
-                    <span>Validation: {(repo.validationCommands || []).length}</span>
-                    {repo.gitlabProjectId && <span>GitLab ID: {repo.gitlabProjectId}</span>}
+                    <span>
+                      Validation: {(repo.validationCommands || []).length}
+                    </span>
+                    {repo.gitlabProjectId && (
+                      <span>GitLab ID: {repo.gitlabProjectId}</span>
+                    )}
                   </div>
                 </div>
-                <div className="flex gap-1 shrink-0">
-                  <button className="btn-default" style={{ padding: "3px 8px", fontSize: "10px" }} onClick={() => handleEdit(repo)}>
+                <div className="flex shrink-0" style={{ gap: 4 }}>
+                  <Button
+                    size="xs"
+                    variant="secondary"
+                    onClick={() => handleEdit(repo)}
+                    aria-label={`Edit repository ${repo.name}`}
+                  >
                     Edit
-                  </button>
-                  <button className="btn-danger" style={{ padding: "3px 8px", fontSize: "10px" }} onClick={() => setDeleteId(repo.id)}>
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="danger"
+                    onClick={() => setDeleteId(repo.id)}
+                    aria-label={`Delete repository ${repo.name}`}
+                  >
                     Delete
-                  </button>
+                  </Button>
                 </div>
               </div>
-            </div>
+            </Card>
           ))}
         </div>
       )}
@@ -224,14 +342,14 @@ export function RepositoriesView() {
         />
       )}
 
-      {deleteId && (
-        <DeleteConfirmModal
-          title="Delete repository?"
-          body="This will permanently delete this repository configuration. Existing runs are not affected."
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteId(null)}
-        />
-      )}
+      <ConfirmModal
+        isOpen={deleteId !== null}
+        title="Delete repository?"
+        body="This will permanently delete this repository configuration. Existing runs are not affected."
+        confirmLabel="Delete"
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteId(null)}
+      />
     </div>
   );
 }
@@ -251,126 +369,169 @@ function RepoFormModal({
   onClose: () => void;
   submitting?: boolean;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(containerRef, true);
-
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
-
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSubmit();
   };
 
-  const inputClass = "w-full bg-[var(--color-base-100)] border border-[var(--border-color)] rounded-[var(--rounded-box)] text-[var(--color-base-content)] px-2.5 py-1.5 text-xs font-[inherit] outline-none focus:border-[#58a6ff]";
-
   return (
-    <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center">
-      <div
-        ref={containerRef}
-        role="dialog"
-        aria-modal="true"
-        className="bg-[var(--color-base-200)] border border-[var(--border-color)] rounded-[var(--rounded-box)] p-5 w-[90vw] max-w-[520px] max-h-[85vh] overflow-y-auto"
+    <Modal isOpen onClose={onClose} labelledBy="repo-form-title" size="lg">
+      <ModalTitle id="repo-form-title">
+        {mode === "create" ? "Add Repository" : "Edit Repository"}
+      </ModalTitle>
+      <form
+        onSubmit={handleFormSubmit}
+        style={{ display: "flex", flexDirection: "column", gap: 14 }}
       >
-        <h3 className="mb-4 font-semibold">{mode === "create" ? "Add Repository" : "Edit Repository"}</h3>
-        <form onSubmit={handleFormSubmit} className="flex flex-col gap-3">
-          <Field label="Name *">
-            <input className={inputClass} value={form.name} onChange={(e) => setField("name", e.target.value)} required />
-          </Field>
-          <Field label="Remote URL *">
-            <input className={inputClass} value={form.remoteUrl} onChange={(e) => setField("remoteUrl", e.target.value)} placeholder="https://gitlab.example.com/group/repo.git" required />
-          </Field>
-          <Field label="Local Mirror Path *">
-            <input className={inputClass} value={form.localMirrorPath} onChange={(e) => setField("localMirrorPath", e.target.value)} placeholder="./runtime/repos/my-repo" required />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Default Branch">
-              <input className={inputClass} value={form.defaultBranch} onChange={(e) => setField("defaultBranch", e.target.value)} />
-            </Field>
-            <Field label="Git Provider">
-              <select className={inputClass} value={form.gitProvider} onChange={(e) => setField("gitProvider", e.target.value)}>
-                <option value="gitlab">GitLab</option>
-                <option value="github">GitHub</option>
-              </select>
-            </Field>
-          </div>
-          <Field label="GitLab Project ID">
-            <input className={inputClass} value={form.gitlabProjectId} onChange={(e) => setField("gitlabProjectId", e.target.value)} placeholder="Optional" />
-          </Field>
-          <Field label="Allowed Commands (one per line)">
-            <textarea className={inputClass + " min-h-[60px] resize-y"} value={form.allowedCommands} onChange={(e) => setField("allowedCommands", e.target.value)} placeholder="pnpm lint&#10;pnpm test" />
-          </Field>
-          <Field label="Validation Commands (one per line)">
-            <textarea className={inputClass + " min-h-[60px] resize-y"} value={form.validationCommands} onChange={(e) => setField("validationCommands", e.target.value)} placeholder="pnpm lint&#10;pnpm typecheck" />
-          </Field>
-          <Field label="Agent Instructions (optional — team conventions, SOPs)">
-            <textarea
-              className={inputClass + " min-h-[80px] resize-y"}
-              value={form.instructions}
-              onChange={(e) => setField("instructions", e.target.value)}
-              placeholder={"Always use Tailwind for styling, never CSS modules.\nGo errors: wrap with fmt.Errorf.\nTests must cover the happy path and at least one error case."}
-            />
-          </Field>
-          <label className="flex items-center gap-2 text-xs text-[var(--fg2)] cursor-pointer">
-            <input type="checkbox" checked={form.enabled} onChange={(e) => setField("enabled", e.target.checked)} className="accent-[#58a6ff]" />
-            Enabled
-          </label>
-          <div className="flex gap-2 mt-2">
-            <button type="submit" className="btn-primary" disabled={submitting}>{submitting ? "Saving..." : mode === "create" ? "Create" : "Save"}</button>
-            <button type="button" className="btn-default" onClick={onClose} disabled={submitting}>Cancel</button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <Input
+          name="name"
+          label="Name *"
+          value={form.name}
+          onChange={(e) => setField("name", e.target.value)}
+          required
+          autoComplete="off"
+        />
+        <Input
+          name="remoteUrl"
+          label="Remote URL *"
+          value={form.remoteUrl}
+          onChange={(e) => setField("remoteUrl", e.target.value)}
+          placeholder="https://gitlab.example.com/group/repo.git"
+          required
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <Input
+          name="localMirrorPath"
+          label="Local Mirror Path *"
+          value={form.localMirrorPath}
+          onChange={(e) => setField("localMirrorPath", e.target.value)}
+          placeholder="./runtime/repos/my-repo"
+          required
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <div className="grid grid-cols-2" style={{ gap: 12 }}>
+          <Input
+            name="defaultBranch"
+            label="Default Branch"
+            value={form.defaultBranch}
+            onChange={(e) => setField("defaultBranch", e.target.value)}
+            autoComplete="off"
+          />
+          <FieldGroup label="Git Provider">
+            <select
+              name="gitProvider"
+              value={form.gitProvider}
+              onChange={(e) => setField("gitProvider", e.target.value)}
+              style={selectStyle}
+            >
+              <option value="gitlab">GitLab</option>
+              <option value="github">GitHub</option>
+            </select>
+          </FieldGroup>
+        </div>
+        <Input
+          name="gitlabProjectId"
+          label="GitLab Project ID"
+          value={form.gitlabProjectId}
+          onChange={(e) => setField("gitlabProjectId", e.target.value)}
+          placeholder="Optional"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <Textarea
+          name="allowedCommands"
+          label="Allowed Commands (one per line)"
+          value={form.allowedCommands}
+          onChange={(e) => setField("allowedCommands", e.target.value)}
+          placeholder={"pnpm lint\npnpm test"}
+          spellCheck={false}
+          rows={3}
+        />
+        <Textarea
+          name="validationCommands"
+          label="Validation Commands (one per line)"
+          value={form.validationCommands}
+          onChange={(e) => setField("validationCommands", e.target.value)}
+          placeholder={"pnpm lint\npnpm typecheck"}
+          spellCheck={false}
+          rows={3}
+        />
+        <Textarea
+          name="instructions"
+          label="Agent Instructions (optional — team conventions, SOPs)"
+          value={form.instructions}
+          onChange={(e) => setField("instructions", e.target.value)}
+          placeholder={
+            "Always use Tailwind for styling, never CSS modules.\nGo errors: wrap with fmt.Errorf.\nTests must cover the happy path and at least one error case."
+          }
+          rows={4}
+        />
+        <Checkbox
+          name="enabled"
+          label="Enabled"
+          checked={form.enabled}
+          onChange={(e) => setField("enabled", e.target.checked)}
+        />
+        <ModalActions>
+          <Button
+            type="submit"
+            variant="primary"
+            isLoading={submitting}
+            disabled={submitting}
+          >
+            {submitting ? "Saving" : mode === "create" ? "Create" : "Save"}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onClose}
+            disabled={submitting}
+          >
+            Cancel
+          </Button>
+        </ModalActions>
+      </form>
+    </Modal>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+const selectStyle: React.CSSProperties = {
+  width: "100%",
+  background: "var(--surface-0)",
+  border: "1px solid var(--hairline)",
+  borderRadius: "var(--radius-sm)",
+  color: "var(--c-fog-100)",
+  padding: "6px 10px",
+  fontSize: "var(--text-body-sm)",
+  fontFamily: "inherit",
+  outline: "none",
+};
+
+function FieldGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
-      <label className="block text-xs text-[var(--fg2)] mb-1">{label}</label>
+      <label
+        style={{
+          display: "block",
+          fontSize: "var(--text-label-md)",
+          fontWeight: 600,
+          color: "var(--c-fog-300)",
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </label>
       {children}
-    </div>
-  );
-}
-
-function DeleteConfirmModal({
-  title,
-  body,
-  onConfirm,
-  onCancel,
-}: {
-  title: string;
-  body: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(containerRef, true);
-
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onCancel();
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onCancel]);
-
-  return (
-    <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center">
-      <div ref={containerRef} role="dialog" aria-modal="true" className="bg-[var(--color-base-200)] border border-[var(--border-color)] rounded-[var(--rounded-box)] p-5 w-[90vw] max-w-[400px]">
-        <h3 className="mb-2 font-semibold">{title}</h3>
-        <p className="text-xs text-[var(--fg2)] mb-4">{body}</p>
-        <div className="flex gap-2">
-          <button className="btn-danger" onClick={onConfirm}>Delete</button>
-          <button className="btn-default" onClick={onCancel}>Cancel</button>
-        </div>
-      </div>
     </div>
   );
 }

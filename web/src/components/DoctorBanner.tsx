@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { AlertTriangle, X } from "lucide-react";
 import type { DashboardSnapshot } from "../types";
 
 type Issue = { key: string; message: string };
@@ -9,7 +10,10 @@ function detectIssues(snapshot: DashboardSnapshot): Issue[] {
     issues.push({ key: "docker", message: "Docker is not running" });
   }
   if (!snapshot.credentialEnv.openRouter) {
-    issues.push({ key: "openrouter", message: "AI API key not configured (USER_OPENROUTER_API_KEY)" });
+    issues.push({
+      key: "openrouter",
+      message: "AI API key not configured (USER_OPENROUTER_API_KEY)",
+    });
   }
   if (snapshot.summary.workerCount === 0) {
     issues.push({ key: "no-workers", message: "No workers registered" });
@@ -36,7 +40,11 @@ export function DoctorBanner({ snapshot }: { snapshot: DashboardSnapshot }) {
     setDismissed((prev) => {
       const next = new Set(prev);
       next.add(key);
-      try { sessionStorage.setItem("arche-doctor-dismissed", JSON.stringify([...next])); } catch { /* */ }
+      try {
+        sessionStorage.setItem("arche-doctor-dismissed", JSON.stringify([...next]));
+      } catch {
+        /* */
+      }
       return next;
     });
   }, []);
@@ -45,18 +53,65 @@ export function DoctorBanner({ snapshot }: { snapshot: DashboardSnapshot }) {
   if (issues.length === 0) return null;
 
   return (
-    <div className="px-5 pt-2">
+    <div
+      style={{ padding: "8px 20px 0" }}
+      role="region"
+      aria-label="System health warnings"
+    >
       {issues.map((issue) => (
         <div
           key={issue.key}
-          className="flex items-center justify-between gap-3 bg-[#d2992215] border border-[#d2992240] rounded-[var(--rounded-box)] px-3 py-2 mb-1.5 text-xs text-[#d29922]"
+          role="alert"
+          className="flex items-center justify-between"
+          style={{
+            gap: 12,
+            background: "var(--c-warning-bg)",
+            border: "1px solid var(--c-gold-700)",
+            borderLeftWidth: 3,
+            borderLeftColor: "var(--c-gold-300)",
+            borderRadius: "var(--radius-sm)",
+            padding: "8px 12px",
+            marginBottom: 6,
+            fontSize: "var(--text-body-sm)",
+            color: "var(--c-gold-300)",
+          }}
         >
-          <span>{"\u26A0"} {issue.message}</span>
+          <span
+            className="flex items-center"
+            style={{ gap: 8, minWidth: 0 }}
+          >
+            <AlertTriangle
+              size={14}
+              strokeWidth={2}
+              aria-hidden="true"
+              style={{ flexShrink: 0 }}
+            />
+            <span className="truncate">{issue.message}</span>
+          </span>
           <button
             onClick={() => dismiss(issue.key)}
-            className="text-[var(--fg3)] hover:text-[var(--fg2)] text-[10px] shrink-0"
+            aria-label={`Dismiss warning: ${issue.message}`}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "var(--c-gold-300)",
+              opacity: 0.7,
+              cursor: "pointer",
+              flexShrink: 0,
+              display: "inline-flex",
+              alignItems: "center",
+              padding: 4,
+              borderRadius: "var(--radius-xs)",
+              transition: "opacity var(--dur-fast) var(--ease-out)",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.opacity = "1";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.opacity = "0.7";
+            }}
           >
-            dismiss
+            <X size={12} strokeWidth={2.5} aria-hidden="true" />
           </button>
         </div>
       ))}

@@ -2,6 +2,46 @@ import { useState } from "react";
 import { Check, Copy } from "lucide-react";
 import type { DashboardRun } from "../types";
 import { formatCost, formatDuration, formatTime } from "../lib/format";
+import { Button } from "./ui/Button";
+import { SectionHeading } from "./ui/SectionHeading";
+
+type Tone = "default" | "info" | "danger";
+
+interface MetaRow {
+  label: string;
+  value: string;
+  tone?: Tone;
+  copyable?: boolean;
+}
+
+const cellStyle = (divider: boolean): React.CSSProperties => ({
+  padding: "8px 14px",
+  borderTop: divider ? "1px solid var(--hairline)" : "none",
+  minWidth: 0,
+});
+
+const labelStyle: React.CSSProperties = {
+  fontSize: "var(--text-label-md)",
+  color: "var(--c-fog-300)",
+  textTransform: "uppercase",
+  letterSpacing: "0.04em",
+  fontWeight: 600,
+  whiteSpace: "nowrap",
+};
+
+const TONE_COLOR: Record<Tone, string> = {
+  default: "var(--c-fog-100)",
+  info:    "var(--c-gold-300)",
+  danger:  "var(--c-error-fg)",
+};
+
+function valueStyle(tone: Tone = "default"): React.CSSProperties {
+  return {
+    color: TONE_COLOR[tone],
+    fontFamily: "var(--font-mono)",
+    fontVariantNumeric: "tabular-nums",
+  };
+}
 
 export function DetailMeta({
   run,
@@ -12,27 +52,24 @@ export function DetailMeta({
   jiraBaseUrl?: string | null;
   onViewTicketHistory?: (ticketKey: string) => void;
 }) {
-  const rows: Array<{ label: string; value: string; color?: string; copyable?: boolean }> = [
-    { label: "Run ID", value: run.id, copyable: true },
-    { label: "Repository", value: run.repoName || "-" },
-    { label: "Branch", value: run.branchName || "-", copyable: !!run.branchName },
+  const rows: MetaRow[] = [
+    { label: "Run ID",     value: run.id, copyable: true },
+    { label: "Repository", value: run.repoName || "—" },
+    { label: "Branch",     value: run.branchName || "—", copyable: !!run.branchName },
     {
       label: "Phase",
-      value: `${run.currentRole || "-"} cycle ${run.currentCycle}`,
+      value: `${run.currentRole || "—"} cycle ${run.currentCycle}`,
     },
-    { label: "Worker", value: run.workerId || "-" },
-    { label: "Started", value: formatTime(run.startedAt) },
-    {
-      label: "Duration",
-      value: formatDuration(run.startedAt, run.finishedAt),
-    },
+    { label: "Worker",   value: run.workerId || "—" },
+    { label: "Started",  value: formatTime(run.startedAt) },
+    { label: "Duration", value: formatDuration(run.startedAt, run.finishedAt) },
   ];
 
   if (run.estimatedCostUsd !== null && run.estimatedCostUsd !== undefined) {
     rows.push({
       label: "Cost",
       value: formatCost(run.estimatedCostUsd),
-      color: "text-[#39d2c0]",
+      tone: "info",
     });
   }
 
@@ -44,68 +81,98 @@ export function DetailMeta({
   }
 
   return (
-    <div className="mb-5">
-      <h3 className="text-[11px] font-semibold text-[var(--fg2)] uppercase tracking-wide mb-2">
-        Details
-      </h3>
-      <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-        {rows.map((row) => (
-          <Row key={row.label} {...row} />
+    <section style={{ marginBottom: 20 }} aria-labelledby="meta-heading">
+      <SectionHeading id="meta-heading">Details</SectionHeading>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "max-content 1fr",
+          fontSize: "var(--text-body-sm)",
+          background: "var(--surface-1)",
+          border: "1px solid var(--hairline)",
+          borderRadius: "var(--radius-md)",
+          overflow: "hidden",
+        }}
+      >
+        {rows.map((row, idx) => (
+          <Row key={row.label} row={row} divider={idx > 0} />
         ))}
+
         {run.ticketKey && (
           <>
-            <span className="text-[var(--fg2)]">Ticket</span>
-            <span className="flex items-center gap-2">
-              {jiraBaseUrl ? (
-                <a
-                  href={`${jiraBaseUrl}/browse/${run.ticketKey}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[#58a6ff] hover:underline"
-                >
-                  {run.ticketKey}
-                </a>
-              ) : (
-                <span>{run.ticketKey}</span>
-              )}
-              {onViewTicketHistory && (
-                <button
-                  onClick={() => onViewTicketHistory(run.ticketKey)}
-                  className="btn-default"
-                  style={{ padding: "1px 8px", fontSize: "11px" }}
-                >
-                  History
-                </button>
-              )}
+            <span style={{ ...cellStyle(true), ...labelStyle }}>Ticket</span>
+            <span
+              style={{
+                ...cellStyle(true),
+                borderLeft: "1px solid var(--hairline)",
+              }}
+            >
+              <span className="flex items-center" style={{ gap: 8 }}>
+                {jiraBaseUrl ? (
+                  <a
+                    href={`${jiraBaseUrl}/browse/${run.ticketKey}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      color: "var(--c-blue-400)",
+                      fontFamily: "var(--font-display)",
+                      fontWeight: 700,
+                      letterSpacing: "-0.01em",
+                    }}
+                    className="hover:underline"
+                  >
+                    {run.ticketKey}
+                  </a>
+                ) : (
+                  <span
+                    style={{
+                      fontFamily: "var(--font-display)",
+                      fontWeight: 700,
+                      color: "var(--c-bone)",
+                    }}
+                  >
+                    {run.ticketKey}
+                  </span>
+                )}
+                {onViewTicketHistory && (
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => onViewTicketHistory(run.ticketKey)}
+                  >
+                    History
+                  </Button>
+                )}
+              </span>
             </span>
           </>
         )}
+
         {run.failureReason && (
           <>
-            <span className="text-[var(--fg2)]">Failure</span>
-            <span className="text-[#f85149]">{run.failureReason}</span>
+            <span style={{ ...cellStyle(true), ...labelStyle }}>Failure</span>
+            <span
+              style={{
+                ...cellStyle(true),
+                ...valueStyle("danger"),
+                borderLeft: "1px solid var(--hairline)",
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              {run.failureReason}
+            </span>
           </>
         )}
       </div>
-    </div>
+    </section>
   );
 }
 
-function Row({
-  label,
-  value,
-  color,
-  copyable,
-}: {
-  label: string;
-  value: string;
-  color?: string;
-  copyable?: boolean;
-}) {
+function Row({ row, divider }: { row: MetaRow; divider: boolean }) {
   const [copied, setCopied] = useState(false);
-
   const handleCopy = () => {
-    navigator.clipboard.writeText(value).then(() => {
+    navigator.clipboard.writeText(row.value).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
@@ -113,17 +180,39 @@ function Row({
 
   return (
     <>
-      <span className="text-[var(--fg2)]">{label}</span>
-      <span className={`${color || "text-[var(--color-base-content)]"} flex items-center gap-1.5 group`}>
-        <span className="truncate">{value}</span>
-        {copyable && (
+      <span style={{ ...cellStyle(divider), ...labelStyle }}>{row.label}</span>
+      <span
+        className="reveal-host"
+        style={{
+          ...cellStyle(divider),
+          ...valueStyle(row.tone),
+          borderLeft: "1px solid var(--hairline)",
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+        }}
+      >
+        <span className="truncate" style={{ minWidth: 0, flex: 1 }}>
+          {row.value}
+        </span>
+        {row.copyable && (
           <button
             onClick={handleCopy}
-            className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity text-[var(--fg3)] hover:text-[#58a6ff] shrink-0"
-            title="Copy"
+            className="shrink-0 reveal-target-inline"
+            aria-label={`Copy ${row.label}`}
+            data-copied={copied || undefined}
+            style={{
+              color: copied ? "var(--c-success-fg)" : "var(--c-fog-300)",
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              transition:
+                "opacity var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out)",
+            }}
           >
             {copied ? (
-              <Check size={11} strokeWidth={2.5} className="text-[#3fb950]" aria-hidden="true" />
+              <Check size={11} strokeWidth={2.5} aria-hidden="true" />
             ) : (
               <Copy size={11} strokeWidth={2} aria-hidden="true" />
             )}

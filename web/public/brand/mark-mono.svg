@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="Arche">
+  <title>Arche mark — monochrome</title>
+  <text x="100" y="100"
+        text-anchor="middle"
+        dominant-baseline="central"
+        fill="currentColor"
+        font-family="'Söhne', 'Inter Display', 'Instrument Sans', 'Inter', system-ui, sans-serif"
+        font-size="186"
+        font-weight="700"
+        letter-spacing="-4">A</text>
+</svg>

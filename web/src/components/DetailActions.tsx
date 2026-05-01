@@ -1,16 +1,7 @@
 import type { DashboardRun } from "../types";
-
-function Kbd({ children }: { children: string }) {
-  return (
-    <span className="text-[9px] text-[var(--fg3)] ml-1 opacity-60">[{children}]</span>
-  );
-}
-
-function Spinner() {
-  return (
-    <span className="inline-block w-3 h-3 border border-current border-t-transparent rounded-full animate-spin ml-1" />
-  );
-}
+import { Button } from "./ui/Button";
+import { Kbd } from "./ui/Kbd";
+import { SectionHeading } from "./ui/SectionHeading";
 
 export function DetailActions({
   run,
@@ -33,59 +24,64 @@ export function DetailActions({
   const disabled = pendingAction != null;
   const buttons: React.ReactNode[] = [];
 
+  const withKbd = (label: string, key: string) => (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+      {label}
+      <Kbd>{key}</Kbd>
+    </span>
+  );
+
   if (run.status === "awaiting_plan_approval") {
     buttons.push(
-      <button
+      <Button
         key="approve-plan"
-        className="btn-primary"
+        variant="primary"
         disabled={disabled}
+        isLoading={isLoading("approve-plan")}
         onClick={() => onAction(run.id, "approve-plan")}
       >
-        Approve Plan{isLoading("approve-plan") ? <Spinner /> : <Kbd>a</Kbd>}
-      </button>,
-    );
-    buttons.push(
-      <button
+        {withKbd("Approve Plan", "a")}
+      </Button>,
+      <Button
         key="request-changes"
-        className="btn-default"
+        variant="secondary"
         disabled={disabled}
         onClick={() => onOpenRespond(run.id, "Request changes to the plan")}
       >
         Request Changes
-      </button>,
-    );
-    buttons.push(
-      <button
+      </Button>,
+      <Button
         key="cancel-plan"
-        className="btn-danger"
+        variant="danger"
         disabled={disabled}
+        isLoading={isLoading("cancel")}
         onClick={() => onAction(run.id, "cancel")}
       >
-        Cancel{isLoading("cancel") ? <Spinner /> : <Kbd>c</Kbd>}
-      </button>,
+        {withKbd("Cancel", "c")}
+      </Button>,
     );
   }
 
   if (run.status === "awaiting_publish_approval") {
     buttons.push(
-      <button
+      <Button
         key="approve-publish"
-        className="btn-primary"
+        variant="primary"
         disabled={disabled}
+        isLoading={isLoading("approve-publish")}
         onClick={() => onAction(run.id, "approve-publish")}
       >
-        Approve Publish{isLoading("approve-publish") ? <Spinner /> : <Kbd>a</Kbd>}
-      </button>,
-    );
-    buttons.push(
-      <button
+        {withKbd("Approve Publish", "a")}
+      </Button>,
+      <Button
         key="reject-publish"
-        className="btn-danger"
+        variant="danger"
         disabled={disabled}
+        isLoading={isLoading("reject-publish")}
         onClick={() => onAction(run.id, "reject-publish")}
       >
-        Reject{isLoading("reject-publish") ? <Spinner /> : <Kbd>x</Kbd>}
-      </button>,
+        {withKbd("Reject", "x")}
+      </Button>,
     );
   }
 
@@ -96,77 +92,79 @@ export function DetailActions({
     const respondTitle = isReviewerDriven
       ? "Provide guidance to resume execution"
       : run.currentRole === "planner"
-        ? "Answer planner question"
-        : run.currentRole === "reviewer"
-          ? "Answer reviewer question"
-          : "Respond to the run";
+      ? "Answer planner question"
+      : run.currentRole === "reviewer"
+      ? "Answer reviewer question"
+      : "Respond to the run";
     buttons.push(
-      <button
+      <Button
         key="respond"
-        className="btn-primary"
+        variant="primary"
         disabled={disabled}
         onClick={() => onOpenRespond(run.id, respondTitle)}
       >
-        {isReviewerDriven ? "Provide Guidance" : "Respond"}<Kbd>h</Kbd>
-      </button>,
-    );
-    buttons.push(
-      <button
+        {withKbd(isReviewerDriven ? "Provide Guidance" : "Respond", "h")}
+      </Button>,
+      <Button
         key="force-approve"
-        className="btn-default"
+        variant="secondary"
         disabled={disabled}
+        isLoading={isLoading("force-approve")}
         onClick={() => onAction(run.id, "force-approve")}
       >
-        Force Approve{isLoading("force-approve") ? <Spinner /> : <Kbd>f</Kbd>}
-      </button>,
-    );
-    buttons.push(
-      <button
+        {withKbd("Force Approve", "f")}
+      </Button>,
+      <Button
         key="cancel-human"
-        className="btn-danger"
+        variant="danger"
         disabled={disabled}
+        isLoading={isLoading("cancel")}
         onClick={() => onAction(run.id, "cancel")}
       >
-        Cancel{isLoading("cancel") ? <Spinner /> : <Kbd>c</Kbd>}
-      </button>,
+        {withKbd("Cancel", "c")}
+      </Button>,
     );
   }
 
   if (run.status === "pushed" && !autoCreateMr && (gitlabConfigured || githubConfigured)) {
     buttons.push(
-      <button
+      <Button
         key="create-mr"
-        className="btn-primary"
+        variant="primary"
         disabled={disabled}
+        isLoading={isLoading("create-mr")}
         onClick={() => onAction(run.id, "create-mr")}
       >
-        {githubConfigured && !gitlabConfigured ? "Create Pull Request" : "Create Merge Request"}
-        {isLoading("create-mr") && <Spinner />}
-      </button>,
+        {githubConfigured && !gitlabConfigured
+          ? "Create Pull Request"
+          : "Create Merge Request"}
+      </Button>,
     );
   }
 
   if (run.status === "failed") {
     buttons.push(
-      <button
+      <Button
         key="retry"
-        className="btn-default"
+        variant="secondary"
         disabled={disabled}
+        isLoading={isLoading("retry")}
         onClick={() => onAction(run.id, "retry")}
       >
-        Retry (full){isLoading("retry") ? <Spinner /> : <Kbd>t</Kbd>}
-      </button>,
+        {withKbd("Retry (full)", "t")}
+      </Button>,
     );
     if (run.planMarkdown) {
       buttons.push(
-        <button
+        <Button
           key="retry-executor"
-          className="btn-default"
+          variant="secondary"
           disabled={disabled}
+          isLoading={isLoading("retry-executor")}
           onClick={() => onAction(run.id, "retry-executor")}
         >
-          Re-execute{isLoading("retry-executor") && <Spinner />}
-        </button>,
+          Re-execute
+        </Button>,
       );
     }
   }
@@ -183,39 +181,41 @@ export function DetailActions({
   ];
   if (!terminalStatuses.includes(run.status)) {
     buttons.push(
-      <button
+      <Button
         key="cancel-active"
-        className="btn-danger"
+        variant="danger"
         disabled={disabled}
+        isLoading={isLoading("cancel")}
         onClick={() => onAction(run.id, "cancel")}
       >
-        Cancel{isLoading("cancel") ? <Spinner /> : <Kbd>c</Kbd>}
-      </button>,
+        {withKbd("Cancel", "c")}
+      </Button>,
     );
   }
 
   const archivableStatuses = ["success", "pushed", "failed", "cancelled", "publish_rejected"];
   if (archivableStatuses.includes(run.status)) {
     buttons.push(
-      <button
+      <Button
         key="archive"
-        className="btn-default"
+        variant="ghost"
         disabled={disabled}
+        isLoading={isLoading("archive")}
         onClick={() => onAction(run.id, "archive")}
       >
-        Archive{isLoading("archive") && <Spinner />}
-      </button>,
+        Archive
+      </Button>,
     );
   }
 
   if (buttons.length === 0) return null;
 
   return (
-    <div className="mb-5">
-      <h3 className="text-[11px] font-semibold text-[var(--fg2)] uppercase tracking-wide mb-2">
-        Actions
-      </h3>
-      <div className="flex gap-2 flex-wrap">{buttons}</div>
+    <div style={{ marginBottom: 20 }}>
+      <SectionHeading>Actions</SectionHeading>
+      <div className="flex flex-wrap" style={{ gap: 8 }}>
+        {buttons}
+      </div>
     </div>
   );
 }

@@ -1,8 +1,17 @@
 import type { DashboardRun } from "../types";
 import { formatCost, formatDuration, formatRelativeTime } from "../lib/format";
-import { StatusBadge } from "./StatusBadge";
+import { StatusPill } from "./ui/StatusPill";
+import { Badge } from "./ui/Badge";
+import { statusMeta, toneVars } from "./ui/tokens";
 
-const ACTIVE_STATUSES = new Set(["executing", "planning", "reviewing", "running", "publishing"]);
+const ACTIVE_STATUSES = new Set([
+  "executing",
+  "planning",
+  "reviewing",
+  "running",
+  "publishing",
+  "researching",
+]);
 
 export function RunItem({
   run,
@@ -21,27 +30,88 @@ export function RunItem({
   onToggleCheck?: (id: string) => void;
   workerStep?: number | null;
 }) {
-  const cost = run.estimatedCostUsd ? ` · ${formatCost(run.estimatedCostUsd)}` : "";
   const findingsCount = run.latestFindings?.length ?? 0;
-  const showFindingsBadge = run.status === "needs_human_input" && findingsCount > 0;
+  const showFindingsBadge =
+    run.status === "needs_human_input" && findingsCount > 0;
   const isActive = ACTIVE_STATUSES.has(run.status);
+
+  // Status spine — drives the left edge color from the same token system that
+  // powers StatusPill / RunHeadline. No more inline #58a6ff.
+  const meta = statusMeta(run.status);
+  const tone = toneVars(meta.tone);
 
   return (
     <div
-      className={`flex items-center gap-2 px-4 py-2.5 border-b border-[var(--border-color)] cursor-pointer transition-colors relative ${
-        selected
-          ? "bg-[var(--color-base-300)] border-l-2 border-l-[#58a6ff]"
-          : "hover:bg-[var(--color-base-200)]"
-      } ${isActive ? "bg-[#0c2d6b15]" : ""}`}
+      role="button"
+      tabIndex={0}
       onClick={() => onSelect(run.id)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(run.id);
+        }
+      }}
+      className="flex items-center cursor-pointer relative"
+      style={{
+        gap: 8,
+        padding: "10px 16px 10px 18px",
+        borderBottom: "1px solid var(--hairline)",
+        background: selected
+          ? "var(--surface-2)"
+          : "transparent",
+        transition: "background var(--dur-fast) var(--ease-out)",
+      }}
+      onMouseEnter={(e) => {
+        if (!selected) e.currentTarget.style.background = "var(--surface-1)";
+      }}
+      onMouseLeave={(e) => {
+        if (!selected) e.currentTarget.style.background = "transparent";
+      }}
     >
-      {/* Active runs get a "breathing" animated indicator on the left so the
-          audience can spot which ticket the agent is currently working on
-          without reading status text. */}
+      {/* Status spine — full-height left edge bar, tone-driven */}
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: selected ? 4 : 3,
+          background: tone.fg,
+          opacity: selected ? 1 : 0.7,
+          boxShadow: meta.live ? tone.glow : undefined,
+          transition:
+            "width var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out)",
+        }}
+      />
+
+      {/* Active "breathing" dot — only on live phases */}
       {isActive && (
-        <span className="relative flex items-center shrink-0" aria-hidden="true">
-          <span className="absolute w-3 h-3 rounded-full bg-[#3fb950] opacity-75 animate-ping" />
-          <span className="relative w-2 h-2 rounded-full bg-[#3fb950]" />
+        <span
+          aria-hidden="true"
+          className="relative flex items-center shrink-0"
+          style={{ width: 12, height: 12 }}
+        >
+          <span
+            style={{
+              position: "absolute",
+              inset: 0,
+              borderRadius: "50%",
+              background: "var(--c-blue-400)",
+              opacity: 0.5,
+              animation: "ping 1.4s var(--ease-out) infinite",
+            }}
+          />
+          <span
+            style={{
+              position: "relative",
+              width: 6,
+              height: 6,
+              margin: "auto",
+              borderRadius: "50%",
+              background: "var(--c-blue-200)",
+            }}
+          />
         </span>
       )}
 
@@ -51,50 +121,82 @@ export function RunItem({
           checked={isChecked ?? false}
           onChange={() => onToggleCheck(run.id)}
           onClick={(e) => e.stopPropagation()}
-          className="accent-[#58a6ff] cursor-pointer shrink-0"
+          aria-label={`Select ${run.ticketKey}${run.ticketTitle ? ` — ${run.ticketTitle}` : ""}`}
+          className="cursor-pointer shrink-0"
+          style={{ accentColor: "var(--c-blue-400)" }}
         />
       )}
 
-      <StatusBadge status={run.status} mrUrl={run.mrUrl} />
+      <StatusPill status={run.status} mrUrl={run.mrUrl} size="sm" />
 
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 font-semibold text-[var(--color-base-content)] text-xs">
+        <div className="flex items-center" style={{ gap: 6 }}>
           {jiraBaseUrl ? (
             <a
               href={`${jiraBaseUrl}/browse/${run.ticketKey}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[#58a6ff] hover:underline shrink-0"
               onClick={(e) => e.stopPropagation()}
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: 13,
+                fontWeight: 700,
+                letterSpacing: "-0.01em",
+                color: "var(--c-bone)",
+              }}
+              className="hover:underline shrink-0"
             >
               {run.ticketKey}
             </a>
           ) : (
-            <span className="shrink-0">{run.ticketKey}</span>
+            <span
+              className="shrink-0"
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: 13,
+                fontWeight: 700,
+                letterSpacing: "-0.01em",
+                color: "var(--c-bone)",
+              }}
+            >
+              {run.ticketKey}
+            </span>
           )}
           {showFindingsBadge && (
-            <span className="inline-flex items-center px-1 py-0 rounded text-[9px] font-bold bg-[#3c1116] text-[#f85149] shrink-0">
-              {findingsCount}
-            </span>
+            <Badge tone="danger">{findingsCount}</Badge>
           )}
         </div>
 
         {run.ticketTitle && (
-          <div className="text-[11px] text-[var(--color-base-content)] truncate opacity-70 mt-0.5">
+          <div
+            className="truncate"
+            style={{
+              fontSize: 11,
+              color: "var(--c-fog-100)",
+              marginTop: 2,
+              opacity: 0.85,
+            }}
+          >
             {run.ticketTitle}
           </div>
         )}
 
-        <div className="text-[11px] text-[var(--fg2)] truncate">
-          {run.repoName || "-"}
-          {cost}
+        <div
+          className="truncate"
+          style={{ fontSize: 10, color: "var(--c-fog-300)", marginTop: 2 }}
+        >
+          {run.repoName || "—"}
+          {run.estimatedCostUsd ? ` · ${formatCost(run.estimatedCostUsd)}` : ""}
           {workerStep != null && isActive && (
-            <span className="ml-1 text-[#58a6ff]">· step {workerStep}</span>
+            <span style={{ marginLeft: 6, color: "var(--c-blue-200)" }}>
+              · step {workerStep}
+            </span>
           )}
         </div>
 
-        <div className="text-[10px] text-[var(--fg3)]">
-          {formatRelativeTime(run.createdAt)} · {formatDuration(run.startedAt, run.finishedAt)}
+        <div style={{ fontSize: 10, color: "var(--c-steel-300)", marginTop: 1 }}>
+          {formatRelativeTime(run.createdAt)} ·{" "}
+          {formatDuration(run.startedAt, run.finishedAt)}
         </div>
       </div>
     </div>

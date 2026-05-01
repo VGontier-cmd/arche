@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Arche">
+  <title>Arche</title>
+  <rect width="32" height="32" rx="3" fill="#07090c"/>
+  <text x="16" y="20"
+        text-anchor="middle"
+        dominant-baseline="alphabetic"
+        fill="#e8ecf1"
+        font-family="'Geist Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace"
+        font-size="26"
+        font-weight="800">∩</text>
+</svg>

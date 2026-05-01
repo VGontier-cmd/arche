@@ -349,7 +349,7 @@ export default function App() {
     <div className="flex h-screen">
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:z-[999] focus:top-2 focus:left-2 focus:px-3 focus:py-1.5 focus:text-xs focus:bg-[var(--color-base-100)] focus:border focus:border-[var(--border-color)] focus:rounded focus:text-[var(--color-base-content)]"
+        className="sr-only focus:not-sr-only focus:absolute focus:z-[999] focus:top-2 focus:left-2 focus:px-3 focus:py-1.5 focus:text-xs focus:bg-[var(--surface-0)] focus:border focus:border-[var(--hairline)] focus:rounded focus:text-[var(--c-fog-100)]"
       >
         Skip to main content
       </a>
@@ -387,6 +387,7 @@ export default function App() {
                 snapshot={snapshot}
                 onAction={handleAction}
                 onOpenRespond={handleOpenRespond}
+                onTriggerRun={() => setTriggerRunOpen(true)}
                 pendingAction={pendingAction}
                 onViewTicketHistory={setTicketHistoryKey}
               />

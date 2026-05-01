@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Settings as SettingsIcon } from "lucide-react";
 import type { RepoRule, Repository } from "../types";
 import {
   fetchRepoRules,
@@ -8,7 +9,12 @@ import {
   deleteRepoRuleApi,
 } from "../api/client";
 import { useToast } from "../context/ToastContext";
-import { useFocusTrap } from "../hooks/useFocusTrap";
+import { Card } from "./ui/Card";
+import { Button } from "./ui/Button";
+import { Badge } from "./ui/Badge";
+import { Input, Checkbox } from "./ui/Input";
+import { ConfirmModal } from "./ConfirmModal";
+import { Modal, ModalTitle, ModalActions } from "./Modal";
 
 type FormData = {
   name: string;
@@ -55,7 +61,10 @@ export function RulesView() {
 
   const load = useCallback(async () => {
     try {
-      const [rulesData, reposData] = await Promise.all([fetchRepoRules(), fetchRepositories()]);
+      const [rulesData, reposData] = await Promise.all([
+        fetchRepoRules(),
+        fetchRepositories(),
+      ]);
       setRules(rulesData);
       setRepos(reposData);
     } catch (e) {
@@ -65,7 +74,9 @@ export function RulesView() {
     }
   }, [toast]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const handleCreate = () => {
     setForm(emptyForm);
@@ -125,68 +136,159 @@ export function RulesView() {
 
   if (loading) {
     return (
-      <div className="p-5 max-w-4xl space-y-3">
+      <div style={{ padding: 28, maxWidth: 960, margin: "0 auto", display: "flex", flexDirection: "column", gap: 12 }}>
         {Array.from({ length: 3 }, (_, i) => (
-          <div key={i} className="bg-[var(--color-base-200)] border border-[var(--border-color)] rounded-[var(--rounded-box)] p-4 space-y-3">
-            <div className="animate-pulse rounded bg-[var(--color-base-300)] h-4 w-1/4" />
-            <div className="animate-pulse rounded bg-[var(--color-base-300)] h-3 w-1/2" />
-          </div>
+          <div
+            key={i}
+            className="animate-pulse"
+            style={{
+              background: "var(--surface-1)",
+              border: "1px solid var(--hairline)",
+              borderRadius: "var(--radius-md)",
+              padding: 16,
+              height: 80,
+            }}
+          />
         ))}
       </div>
     );
   }
 
   return (
-    <div className="p-5 max-w-4xl">
-      <div className="flex items-center justify-between mb-5">
-        <h2 className="text-sm font-semibold text-[var(--color-base-content)]">
-          Routing Rules ({rules.length})
+    <div style={{ padding: 28, maxWidth: 960, margin: "0 auto" }}>
+      <div
+        className="flex items-center justify-between"
+        style={{ marginBottom: 20 }}
+      >
+        <h2
+          style={{
+            fontFamily: "var(--font-display)",
+            fontSize: "var(--text-display-md)",
+            fontWeight: 700,
+            letterSpacing: "-0.015em",
+            color: "var(--c-bone)",
+          }}
+        >
+          Routing Rules
+          <Badge tone="neutral" size="md" style={{ marginLeft: 10 }}>
+            {rules.length}
+          </Badge>
         </h2>
-        <button className="btn-primary" onClick={handleCreate}>+ Add Rule</button>
+        <Button variant="primary" onClick={handleCreate}>
+          Add Rule
+        </Button>
       </div>
 
       {rules.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-center">
-          <div className="text-3xl mb-3 opacity-40">{"\u2699"}</div>
-          <h3 className="text-sm font-semibold text-[var(--color-base-content)] mb-1">No routing rules</h3>
-          <p className="text-xs text-[var(--fg2)] mb-4">Add a rule to route Jira tickets to repositories.</p>
-          <button className="btn-primary" onClick={handleCreate}>+ Add Rule</button>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {rules.map((rule) => (
-            <div
-              key={rule.id}
-              className="bg-[var(--color-base-200)] border border-[var(--border-color)] rounded-[var(--rounded-box)] p-4"
+        <Card tone="default" padding={6}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              padding: "24px 16px",
+              textAlign: "center",
+            }}
+          >
+            <SettingsIcon
+              size={32}
+              strokeWidth={1.5}
+              aria-hidden="true"
+              style={{ color: "var(--c-steel-300)", marginBottom: 12 }}
+            />
+            <h3
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: "var(--text-heading-lg)",
+                fontWeight: 700,
+                color: "var(--c-bone)",
+                marginBottom: 6,
+              }}
             >
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-semibold text-sm text-[var(--color-base-content)]">{rule.name}</span>
-                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${rule.enabled ? "bg-[#3fb95020] text-[#3fb950]" : "bg-[#f8514920] text-[#f85149]"}`}>
+              No routing rules
+            </h3>
+            <p
+              style={{
+                fontSize: "var(--text-body-sm)",
+                color: "var(--c-fog-300)",
+                marginBottom: 16,
+              }}
+            >
+              Add a rule to route Jira tickets to repositories.
+            </p>
+            <Button variant="primary" onClick={handleCreate}>
+              Add Rule
+            </Button>
+          </div>
+        </Card>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {rules.map((rule) => (
+            <Card key={rule.id} tone="default" padding={4}>
+              <div
+                className="flex items-start justify-between"
+                style={{ gap: 16 }}
+              >
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div
+                    className="flex items-center"
+                    style={{ gap: 8, marginBottom: 6, flexWrap: "wrap" }}
+                  >
+                    <span
+                      style={{
+                        fontFamily: "var(--font-display)",
+                        fontSize: "var(--text-heading-md)",
+                        fontWeight: 700,
+                        letterSpacing: "-0.005em",
+                        color: "var(--c-bone)",
+                      }}
+                    >
+                      {rule.name}
+                    </span>
+                    <Badge tone={rule.enabled ? "success" : "danger"}>
                       {rule.enabled ? "enabled" : "disabled"}
-                    </span>
-                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#d2a8ff20] text-[#d2a8ff] font-medium">
-                      priority {rule.priority}
-                    </span>
+                    </Badge>
+                    <Badge tone="primary">priority {rule.priority}</Badge>
                   </div>
-                  <div className="flex gap-4 mt-1 text-[11px] text-[var(--fg2)] flex-wrap">
-                    <span>Repo: <strong>{rule.repositoryName || rule.repositoryId}</strong></span>
+                  <div
+                    className="flex flex-wrap"
+                    style={{
+                      gap: 16,
+                      marginTop: 4,
+                      fontSize: "var(--text-body-sm)",
+                      color: "var(--c-fog-300)",
+                    }}
+                  >
+                    <span>
+                      Repo:{" "}
+                      <strong style={{ color: "var(--c-fog-100)" }}>
+                        {rule.repositoryName || rule.repositoryId}
+                      </strong>
+                    </span>
                     {rule.jiraProjectKey && <span>Jira: {rule.jiraProjectKey}</span>}
                     {rule.label && <span>Label: {rule.label}</span>}
                     {rule.issueType && <span>Type: {rule.issueType}</span>}
                   </div>
                 </div>
-                <div className="flex gap-1 shrink-0">
-                  <button className="btn-default" style={{ padding: "3px 8px", fontSize: "10px" }} onClick={() => handleEdit(rule)}>
+                <div className="flex shrink-0" style={{ gap: 4 }}>
+                  <Button
+                    size="xs"
+                    variant="secondary"
+                    onClick={() => handleEdit(rule)}
+                  >
                     Edit
-                  </button>
-                  <button className="btn-danger" style={{ padding: "3px 8px", fontSize: "10px" }} onClick={() => setDeleteId(rule.id)}>
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="danger"
+                    onClick={() => setDeleteId(rule.id)}
+                    aria-label={`Delete rule ${rule.name}`}
+                  >
                     Delete
-                  </button>
+                  </Button>
                 </div>
               </div>
-            </div>
+            </Card>
           ))}
         </div>
       )}
@@ -203,14 +305,14 @@ export function RulesView() {
         />
       )}
 
-      {deleteId && (
-        <DeleteConfirmModal
-          title="Delete rule?"
-          body="This will permanently delete this routing rule."
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteId(null)}
-        />
-      )}
+      <ConfirmModal
+        isOpen={deleteId !== null}
+        title="Delete rule?"
+        body="This will permanently delete this routing rule."
+        confirmLabel="Delete"
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteId(null)}
+      />
     </div>
   );
 }
@@ -232,116 +334,138 @@ function RuleFormModal({
   onSubmit: () => void;
   onClose: () => void;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(containerRef, true);
-
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
-
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSubmit();
   };
 
-  const inputClass = "w-full bg-[var(--color-base-100)] border border-[var(--border-color)] rounded-[var(--rounded-box)] text-[var(--color-base-content)] px-2.5 py-1.5 text-xs font-[inherit] outline-none focus:border-[#58a6ff]";
-
   return (
-    <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center">
-      <div
-        ref={containerRef}
-        role="dialog"
-        aria-modal="true"
-        className="bg-[var(--color-base-200)] border border-[var(--border-color)] rounded-[var(--rounded-box)] p-5 w-[90vw] max-w-[480px]"
+    <Modal isOpen onClose={onClose} labelledBy="rule-form-title">
+      <ModalTitle id="rule-form-title">
+        {mode === "create" ? "Add Routing Rule" : "Edit Rule"}
+      </ModalTitle>
+      <form
+        onSubmit={handleFormSubmit}
+        style={{ display: "flex", flexDirection: "column", gap: 14 }}
       >
-        <h3 className="mb-4 font-semibold">{mode === "create" ? "Add Routing Rule" : "Edit Rule"}</h3>
-        <form onSubmit={handleFormSubmit} className="flex flex-col gap-3">
-          <Field label="Name *">
-            <input className={inputClass} value={form.name} onChange={(e) => setField("name", e.target.value)} required />
-          </Field>
-          <Field label="Repository *">
-            <select className={inputClass} value={form.repositoryId} onChange={(e) => setField("repositoryId", e.target.value)} required>
-              <option value="">Select a repository</option>
-              {repos.map((r) => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
-            </select>
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Jira Project Key">
-              <input className={inputClass} value={form.jiraProjectKey} onChange={(e) => setField("jiraProjectKey", e.target.value)} placeholder="PROJ" />
-            </Field>
-            <Field label="Label">
-              <input className={inputClass} value={form.label} onChange={(e) => setField("label", e.target.value)} placeholder="agent-ready" />
-            </Field>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Issue Type">
-              <input className={inputClass} value={form.issueType} onChange={(e) => setField("issueType", e.target.value)} placeholder="Bug, Task..." />
-            </Field>
-            <Field label="Priority">
-              <input className={inputClass} type="number" value={form.priority} onChange={(e) => setField("priority", e.target.value)} />
-            </Field>
-          </div>
-          <label className="flex items-center gap-2 text-xs text-[var(--fg2)] cursor-pointer">
-            <input type="checkbox" checked={form.enabled} onChange={(e) => setField("enabled", e.target.checked)} className="accent-[#58a6ff]" />
-            Enabled
-          </label>
-          <div className="flex gap-2 mt-2">
-            <button type="submit" className="btn-primary" disabled={submitting}>{submitting ? "Saving..." : mode === "create" ? "Create" : "Save"}</button>
-            <button type="button" className="btn-default" onClick={onClose} disabled={submitting}>Cancel</button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <Input
+          name="name"
+          label="Name *"
+          value={form.name}
+          onChange={(e) => setField("name", e.target.value)}
+          required
+          autoComplete="off"
+        />
+        <FieldGroup label="Repository *">
+          <select
+            name="repositoryId"
+            value={form.repositoryId}
+            onChange={(e) => setField("repositoryId", e.target.value)}
+            required
+            style={selectStyle}
+          >
+            <option value="">Select a repository</option>
+            {repos.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+        </FieldGroup>
+        <div
+          className="grid grid-cols-2"
+          style={{ gap: 12 }}
+        >
+          <Input
+            name="jiraProjectKey"
+            label="Jira Project Key"
+            value={form.jiraProjectKey}
+            onChange={(e) => setField("jiraProjectKey", e.target.value)}
+            placeholder="PROJ"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <Input
+            name="label"
+            label="Label"
+            value={form.label}
+            onChange={(e) => setField("label", e.target.value)}
+            placeholder="agent-ready"
+            autoComplete="off"
+          />
+        </div>
+        <div className="grid grid-cols-2" style={{ gap: 12 }}>
+          <Input
+            name="issueType"
+            label="Issue Type"
+            value={form.issueType}
+            onChange={(e) => setField("issueType", e.target.value)}
+            placeholder="Bug, Task…"
+            autoComplete="off"
+          />
+          <Input
+            name="priority"
+            label="Priority"
+            type="number"
+            inputMode="numeric"
+            value={form.priority}
+            onChange={(e) => setField("priority", e.target.value)}
+          />
+        </div>
+        <Checkbox
+          name="enabled"
+          label="Enabled"
+          checked={form.enabled}
+          onChange={(e) => setField("enabled", e.target.checked)}
+        />
+        <ModalActions>
+          <Button type="submit" variant="primary" isLoading={submitting} disabled={submitting}>
+            {submitting ? "Saving" : mode === "create" ? "Create" : "Save"}
+          </Button>
+          <Button type="button" variant="secondary" onClick={onClose} disabled={submitting}>
+            Cancel
+          </Button>
+        </ModalActions>
+      </form>
+    </Modal>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+const selectStyle: React.CSSProperties = {
+  width: "100%",
+  background: "var(--surface-0)",
+  border: "1px solid var(--hairline)",
+  borderRadius: "var(--radius-sm)",
+  color: "var(--c-fog-100)",
+  padding: "6px 10px",
+  fontSize: "var(--text-body-sm)",
+  fontFamily: "inherit",
+  outline: "none",
+};
+
+function FieldGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
-      <label className="block text-xs text-[var(--fg2)] mb-1">{label}</label>
+      <label
+        style={{
+          display: "block",
+          fontSize: "var(--text-label-md)",
+          fontWeight: 600,
+          color: "var(--c-fog-300)",
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </label>
       {children}
-    </div>
-  );
-}
-
-function DeleteConfirmModal({
-  title,
-  body,
-  onConfirm,
-  onCancel,
-}: {
-  title: string;
-  body: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(containerRef, true);
-
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onCancel();
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onCancel]);
-
-  return (
-    <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center">
-      <div ref={containerRef} role="dialog" aria-modal="true" className="bg-[var(--color-base-200)] border border-[var(--border-color)] rounded-[var(--rounded-box)] p-5 w-[90vw] max-w-[400px]">
-        <h3 className="mb-2 font-semibold">{title}</h3>
-        <p className="text-xs text-[var(--fg2)] mb-4">{body}</p>
-        <div className="flex gap-2">
-          <button className="btn-danger" onClick={onConfirm}>Delete</button>
-          <button className="btn-default" onClick={onCancel}>Cancel</button>
-        </div>
-      </div>
     </div>
   );
 }

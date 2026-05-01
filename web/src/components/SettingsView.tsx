@@ -1,13 +1,38 @@
 import { useEffect, useRef, useState } from "react";
 import type { OrchestratorConfigView, ExecutorProfile } from "../types";
-import { fetchConfig, updateConfig, fetchOpenRouterModels, type OpenRouterModel } from "../api/client";
+import {
+  fetchConfig,
+  updateConfig,
+  fetchOpenRouterModels,
+  type OpenRouterModel,
+} from "../api/client";
 import { useToast } from "../context/ToastContext";
 import { splitLines } from "../lib/format";
+import { Card } from "./ui/Card";
+import { Button } from "./ui/Button";
+import { Input, Textarea, Checkbox } from "./ui/Input";
+import { Badge } from "./ui/Badge";
 
-type SectionKey = "workflow" | "policy" | "worker" | "defaults" | "routing" | "git" | "executors";
+type SectionKey =
+  | "workflow"
+  | "policy"
+  | "worker"
+  | "defaults"
+  | "routing"
+  | "git"
+  | "executors";
 
-const inputClass =
-  "w-full bg-[var(--color-base-100)] border border-[var(--border-color)] rounded-[var(--rounded-box)] text-[var(--color-base-content)] px-2.5 py-1.5 text-xs font-[inherit] outline-none focus:border-[#58a6ff]";
+const selectStyle: React.CSSProperties = {
+  width: "100%",
+  background: "var(--surface-0)",
+  border: "1px solid var(--hairline)",
+  borderRadius: "var(--radius-sm)",
+  color: "var(--c-fog-100)",
+  padding: "6px 10px",
+  fontSize: "var(--text-body-sm)",
+  fontFamily: "inherit",
+  outline: "none",
+};
 
 export function SettingsView() {
   const [config, setConfig] = useState<OrchestratorConfigView | null>(null);
@@ -20,13 +45,16 @@ export function SettingsView() {
   useEffect(() => {
     fetchConfig()
       .then(setConfig)
-      .catch((e) => toast.error("Failed to load config: " + (e instanceof Error ? e.message : e)))
+      .catch((e) =>
+        toast.error(
+          "Failed to load config: " + (e instanceof Error ? e.message : e),
+        ),
+      )
       .finally(() => setLoading(false));
   }, [toast]);
 
   const startEdit = (key: SectionKey) => {
     if (!config) return;
-    // Deep clone the section data for the form
     setSectionForm(JSON.parse(JSON.stringify(config[key])));
     setEditingSection(key);
   };
@@ -40,13 +68,17 @@ export function SettingsView() {
     if (!editingSection) return;
     setSaving(true);
     try {
-      const updated = await updateConfig({ [editingSection]: sectionForm } as Partial<OrchestratorConfigView>);
+      const updated = await updateConfig({
+        [editingSection]: sectionForm,
+      } as Partial<OrchestratorConfigView>);
       setConfig(updated);
       setEditingSection(null);
       setSectionForm({});
       toast.success("Configuration saved");
     } catch (e) {
-      toast.error("Failed to save: " + (e instanceof Error ? e.message : e));
+      toast.error(
+        "Failed to save: " + (e instanceof Error ? e.message : e),
+      );
     } finally {
       setSaving(false);
     }
@@ -58,32 +90,75 @@ export function SettingsView() {
 
   if (loading) {
     return (
-      <div className="p-5 max-w-4xl space-y-4">
+      <div
+        style={{
+          padding: 28,
+          maxWidth: 960,
+          margin: "0 auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: 16,
+        }}
+      >
         {Array.from({ length: 4 }, (_, i) => (
-          <div key={i} className="bg-[var(--color-base-200)] border border-[var(--border-color)] rounded-[var(--rounded-box)] p-4 space-y-3">
-            <div className="animate-pulse rounded bg-[var(--color-base-300)] h-4 w-1/4 mb-2" />
-            <div className="space-y-2">
-              <div className="flex gap-3"><div className="animate-pulse rounded bg-[var(--color-base-300)] h-3 w-1/5" /><div className="animate-pulse rounded bg-[var(--color-base-300)] h-3 w-2/5" /></div>
-              <div className="flex gap-3"><div className="animate-pulse rounded bg-[var(--color-base-300)] h-3 w-1/5" /><div className="animate-pulse rounded bg-[var(--color-base-300)] h-3 w-1/3" /></div>
-            </div>
-          </div>
+          <div
+            key={i}
+            className="animate-pulse"
+            style={{
+              background: "var(--surface-1)",
+              border: "1px solid var(--hairline)",
+              borderRadius: "var(--radius-md)",
+              padding: 16,
+              height: 96,
+            }}
+          />
         ))}
       </div>
     );
   }
 
   if (!config) {
-    return <div className="p-8 text-center text-[var(--fg3)] text-sm">Failed to load configuration.</div>;
+    return (
+      <div
+        style={{
+          padding: 32,
+          textAlign: "center",
+          color: "var(--c-steel-300)",
+          fontSize: "var(--text-body-sm)",
+        }}
+      >
+        Failed to load configuration.
+      </div>
+    );
   }
 
   return (
-    <div className="p-5 max-w-4xl">
-      <h2 className="text-sm font-semibold text-[var(--color-base-content)] mb-5">
+    <div style={{ padding: 28, maxWidth: 960, margin: "0 auto" }}>
+      <h2
+        style={{
+          fontFamily: "var(--font-display)",
+          fontSize: "var(--text-display-md)",
+          fontWeight: 700,
+          letterSpacing: "-0.015em",
+          color: "var(--c-bone)",
+          marginBottom: 20,
+        }}
+      >
         Configuration
-        <span className="font-normal text-[var(--fg3)] text-xs ml-2">(from orchestrator.yml)</span>
+        <span
+          style={{
+            fontWeight: 400,
+            color: "var(--c-steel-300)",
+            fontSize: "var(--text-body-sm)",
+            marginLeft: 8,
+            fontFamily: "var(--font-mono)",
+          }}
+        >
+          (from orchestrator.yml)
+        </span>
       </h2>
 
-      <div className="flex flex-col gap-4">
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         {/* Execution Profiles */}
         <ConfigSection
           title="Execution Profiles"
@@ -101,13 +176,43 @@ export function SettingsView() {
             />
           ) : (
             <>
-              <div className="text-[10px] text-[var(--fg3)] mb-2">
-                Defaults: planner={config.executors.defaults.planner}, executor={config.executors.defaults.executor}, reviewer={config.executors.defaults.reviewer}
+              <div
+                style={{
+                  fontSize: 10,
+                  color: "var(--c-steel-300)",
+                  marginBottom: 10,
+                }}
+              >
+                Defaults: planner={config.executors.defaults.planner}, executor=
+                {config.executors.defaults.executor}, reviewer=
+                {config.executors.defaults.reviewer}
               </div>
               {Object.entries(config.executors.profiles).map(([name, profile]) => (
-                <div key={name} className="bg-[var(--color-base-100)] rounded-[var(--rounded-box)] p-3 mb-2">
-                  <div className="font-semibold text-xs text-[#58a6ff] mb-1">{name}</div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-[11px]">
+                <div
+                  key={name}
+                  style={{
+                    background: "var(--surface-0)",
+                    border: "1px solid var(--hairline)",
+                    borderRadius: "var(--radius-sm)",
+                    padding: 12,
+                    marginBottom: 8,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontFamily: "var(--font-display)",
+                      fontWeight: 700,
+                      fontSize: "var(--text-body-sm)",
+                      color: "var(--c-blue-200)",
+                      marginBottom: 6,
+                    }}
+                  >
+                    {name}
+                  </div>
+                  <div
+                    className="grid grid-cols-2 sm:grid-cols-3"
+                    style={{ columnGap: 16, rowGap: 4, fontSize: 11 }}
+                  >
                     <KV label="Model" value={profile.model} />
                     <KV label="Driver" value={profile.driver} />
                     <KV label="Base URL" value={profile.base_url} />
@@ -133,23 +238,45 @@ export function SettingsView() {
           saving={saving}
         >
           {editingSection === "workflow" ? (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-[11px]">
-              <CheckField
+            <div
+              className="grid grid-cols-2"
+              style={{ columnGap: 16, rowGap: 12, fontSize: 11 }}
+            >
+              <Checkbox
+                name="require_plan_approval"
                 label="Require Plan Approval"
-                checked={(sectionForm as Record<string, unknown>).require_plan_approval as boolean}
-                onChange={(v) => updateField("require_plan_approval", v)}
+                checked={
+                  (sectionForm as Record<string, unknown>).require_plan_approval as boolean
+                }
+                onChange={(e) =>
+                  updateField("require_plan_approval", e.target.checked)
+                }
               />
-              <CheckField
+              <Checkbox
+                name="require_publish_approval"
                 label="Require Publish Approval"
-                checked={(sectionForm as Record<string, unknown>).require_publish_approval as boolean}
-                onChange={(v) => updateField("require_publish_approval", v)}
+                checked={
+                  (sectionForm as Record<string, unknown>).require_publish_approval as boolean
+                }
+                onChange={(e) =>
+                  updateField("require_publish_approval", e.target.checked)
+                }
               />
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+            <div
+              className="grid grid-cols-2"
+              style={{ columnGap: 16, rowGap: 4, fontSize: 11 }}
+            >
               <KV label="Mode" value={config.workflow.mode} />
-              <BoolKV label="Require Plan Approval" value={config.workflow.require_plan_approval} />
-              <BoolKV label="Require Publish Approval" value={config.workflow.require_publish_approval} />
+              <BoolKV
+                label="Require Plan Approval"
+                value={config.workflow.require_plan_approval}
+              />
+              <BoolKV
+                label="Require Publish Approval"
+                value={config.workflow.require_publish_approval}
+              />
             </div>
           )}
         </ConfigSection>
@@ -165,31 +292,58 @@ export function SettingsView() {
           saving={saving}
         >
           {editingSection === "policy" ? (
-            <PolicyEditForm form={sectionForm as Record<string, unknown>} updateField={updateField} />
+            <PolicyEditForm
+              form={sectionForm as Record<string, unknown>}
+              updateField={updateField}
+            />
           ) : (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+            <div
+              className="grid grid-cols-2"
+              style={{ columnGap: 16, rowGap: 4, fontSize: 11 }}
+            >
               <KV label="Assignee" value={config.policy.assignee} />
               <KV label="Required Status" value={config.policy.required_status} />
               <KV label="Required Label" value={config.policy.required_label} />
-              <KV label="Allowed Types" value={config.policy.allowed_issue_types.join(", ")} />
-              <KV label="Max Changed Files" value={String(config.policy.max_changed_files)} />
-              <KV label="Max Changed Lines" value={String(config.policy.max_changed_lines)} />
-              <KV label="Min Description Length" value={String(config.policy.description_min_length)} />
+              <KV
+                label="Allowed Types"
+                value={config.policy.allowed_issue_types.join(", ")}
+              />
+              <KV
+                label="Max Changed Files"
+                value={String(config.policy.max_changed_files)}
+              />
+              <KV
+                label="Max Changed Lines"
+                value={String(config.policy.max_changed_lines)}
+              />
+              <KV
+                label="Min Description Length"
+                value={String(config.policy.description_min_length)}
+              />
             </div>
           )}
         </ConfigSection>
 
         {/* Sandbox (read-only) */}
         <ConfigSection title="Sandbox" subtitle="read-only — requires restart">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+          <div
+            className="grid grid-cols-2"
+            style={{ columnGap: 16, rowGap: 4, fontSize: 11 }}
+          >
             <KV label="Image" value={config.sandbox.image} />
             <KV label="Network" value={config.sandbox.network} />
             <KV label="Shell" value={config.sandbox.shell} />
             <KV label="Memory" value={`${config.sandbox.memory_limit_mb} MB`} />
             <KV label="CPUs" value={config.sandbox.cpus} />
             <KV label="PID Limit" value={String(config.sandbox.pids_limit)} />
-            <BoolKV label="Read-only Rootfs" value={config.sandbox.read_only_rootfs} />
-            <BoolKV label="No New Privileges" value={config.sandbox.no_new_privileges} />
+            <BoolKV
+              label="Read-only Rootfs"
+              value={config.sandbox.read_only_rootfs}
+            />
+            <BoolKV
+              label="No New Privileges"
+              value={config.sandbox.no_new_privileges}
+            />
           </div>
         </ConfigSection>
 
@@ -204,30 +358,96 @@ export function SettingsView() {
           saving={saving}
         >
           {editingSection === "worker" ? (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-[11px]">
-              <Field label="Poll Interval (seconds)">
-                <input type="number" className={inputClass} value={(sectionForm as Record<string, unknown>).poll_interval_seconds as number} onChange={(e) => updateField("poll_interval_seconds", Number(e.target.value))} />
-              </Field>
-              <Field label="Lease TTL (seconds)">
-                <input type="number" className={inputClass} value={(sectionForm as Record<string, unknown>).lease_ttl_seconds as number} onChange={(e) => updateField("lease_ttl_seconds", Number(e.target.value))} />
-              </Field>
-              <Field label="Max Agent Steps">
-                <input type="number" className={inputClass} value={(sectionForm as Record<string, unknown>).max_agent_steps as number} onChange={(e) => updateField("max_agent_steps", Number(e.target.value))} />
-              </Field>
-              <Field label="Max Run Seconds">
-                <input type="number" className={inputClass} value={(sectionForm as Record<string, unknown>).max_run_seconds as number} onChange={(e) => updateField("max_run_seconds", Number(e.target.value))} />
-              </Field>
-              <Field label="Human Input Timeout (hours)">
-                <input type="number" className={inputClass} value={(sectionForm as Record<string, unknown>).human_input_timeout_hours as number} onChange={(e) => updateField("human_input_timeout_hours", Number(e.target.value))} />
-              </Field>
+            <div
+              className="grid grid-cols-2"
+              style={{ columnGap: 16, rowGap: 12 }}
+            >
+              <Input
+                name="poll_interval_seconds"
+                label="Poll Interval (seconds)"
+                type="number"
+                inputMode="numeric"
+                value={
+                  (sectionForm as Record<string, unknown>).poll_interval_seconds as number
+                }
+                onChange={(e) =>
+                  updateField("poll_interval_seconds", Number(e.target.value))
+                }
+              />
+              <Input
+                name="lease_ttl_seconds"
+                label="Lease TTL (seconds)"
+                type="number"
+                inputMode="numeric"
+                value={
+                  (sectionForm as Record<string, unknown>).lease_ttl_seconds as number
+                }
+                onChange={(e) =>
+                  updateField("lease_ttl_seconds", Number(e.target.value))
+                }
+              />
+              <Input
+                name="max_agent_steps"
+                label="Max Agent Steps"
+                type="number"
+                inputMode="numeric"
+                value={
+                  (sectionForm as Record<string, unknown>).max_agent_steps as number
+                }
+                onChange={(e) =>
+                  updateField("max_agent_steps", Number(e.target.value))
+                }
+              />
+              <Input
+                name="max_run_seconds"
+                label="Max Run Seconds"
+                type="number"
+                inputMode="numeric"
+                value={
+                  (sectionForm as Record<string, unknown>).max_run_seconds as number
+                }
+                onChange={(e) =>
+                  updateField("max_run_seconds", Number(e.target.value))
+                }
+              />
+              <Input
+                name="human_input_timeout_hours"
+                label="Human Input Timeout (hours)"
+                type="number"
+                inputMode="numeric"
+                value={
+                  (sectionForm as Record<string, unknown>).human_input_timeout_hours as number
+                }
+                onChange={(e) =>
+                  updateField("human_input_timeout_hours", Number(e.target.value))
+                }
+              />
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
-              <KV label="Poll Interval" value={`${config.worker.poll_interval_seconds}s`} />
-              <KV label="Lease TTL" value={`${config.worker.lease_ttl_seconds}s`} />
-              <KV label="Max Agent Steps" value={String(config.worker.max_agent_steps)} />
-              <KV label="Max Run Seconds" value={`${config.worker.max_run_seconds}s`} />
-              <KV label="Human Input Timeout" value={`${config.worker.human_input_timeout_hours}h`} />
+            <div
+              className="grid grid-cols-2"
+              style={{ columnGap: 16, rowGap: 4, fontSize: 11 }}
+            >
+              <KV
+                label="Poll Interval"
+                value={`${config.worker.poll_interval_seconds}s`}
+              />
+              <KV
+                label="Lease TTL"
+                value={`${config.worker.lease_ttl_seconds}s`}
+              />
+              <KV
+                label="Max Agent Steps"
+                value={String(config.worker.max_agent_steps)}
+              />
+              <KV
+                label="Max Run Seconds"
+                value={`${config.worker.max_run_seconds}s`}
+              />
+              <KV
+                label="Human Input Timeout"
+                value={`${config.worker.human_input_timeout_hours}h`}
+              />
             </div>
           )}
         </ConfigSection>
@@ -243,48 +463,42 @@ export function SettingsView() {
           saving={saving}
         >
           {editingSection === "defaults" ? (
-            <div className="flex flex-col gap-3 text-[11px]">
-              <Field label="Allowed Commands (one per line)">
-                <textarea
-                  className={inputClass + " min-h-[60px] resize-y"}
-                  value={((sectionForm as Record<string, unknown>).allowed_commands as string[]).join("\n")}
-                  onChange={(e) => updateField("allowed_commands", splitLines(e.target.value))}
-                />
-              </Field>
-              <Field label="Validation Commands (one per line)">
-                <textarea
-                  className={inputClass + " min-h-[60px] resize-y"}
-                  value={((sectionForm as Record<string, unknown>).validation_commands as string[]).join("\n")}
-                  onChange={(e) => updateField("validation_commands", splitLines(e.target.value))}
-                />
-              </Field>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <Textarea
+                name="allowed_commands"
+                label="Allowed Commands (one per line)"
+                value={(
+                  (sectionForm as Record<string, unknown>).allowed_commands as string[]
+                ).join("\n")}
+                onChange={(e) =>
+                  updateField("allowed_commands", splitLines(e.target.value))
+                }
+                spellCheck={false}
+                rows={3}
+              />
+              <Textarea
+                name="validation_commands"
+                label="Validation Commands (one per line)"
+                value={(
+                  (sectionForm as Record<string, unknown>).validation_commands as string[]
+                ).join("\n")}
+                onChange={(e) =>
+                  updateField("validation_commands", splitLines(e.target.value))
+                }
+                spellCheck={false}
+                rows={3}
+              />
             </div>
           ) : (
-            <div className="text-[11px]">
-              <div className="mb-2">
-                <span className="text-[var(--fg2)]">Allowed Commands:</span>
-                {config.defaults.allowed_commands.length > 0 ? (
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {config.defaults.allowed_commands.map((cmd, i) => (
-                      <span key={i} className="px-1.5 py-0.5 bg-[var(--color-base-100)] rounded text-[10px] text-[var(--fg2)]">{cmd}</span>
-                    ))}
-                  </div>
-                ) : (
-                  <span className="text-[var(--fg3)] ml-1">none</span>
-                )}
-              </div>
-              <div>
-                <span className="text-[var(--fg2)]">Validation Commands:</span>
-                {config.defaults.validation_commands.length > 0 ? (
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {config.defaults.validation_commands.map((cmd, i) => (
-                      <span key={i} className="px-1.5 py-0.5 bg-[var(--color-base-100)] rounded text-[10px] text-[var(--fg2)]">{cmd}</span>
-                    ))}
-                  </div>
-                ) : (
-                  <span className="text-[var(--fg3)] ml-1">none</span>
-                )}
-              </div>
+            <div style={{ fontSize: 11 }}>
+              <CommandPills
+                label="Allowed Commands"
+                commands={config.defaults.allowed_commands}
+              />
+              <CommandPills
+                label="Validation Commands"
+                commands={config.defaults.validation_commands}
+              />
             </div>
           )}
         </ConfigSection>
@@ -301,14 +515,17 @@ export function SettingsView() {
             try {
               const updated = await updateConfig({
                 git: sectionForm as OrchestratorConfigView["git"],
-                routing: (sectionForm as Record<string, unknown>)._routing as OrchestratorConfigView["routing"] | undefined,
+                routing: (sectionForm as Record<string, unknown>)
+                  ._routing as OrchestratorConfigView["routing"] | undefined,
               });
               setConfig(updated);
               setEditingSection(null);
               setSectionForm({});
               toast.success("Configuration saved");
             } catch (e) {
-              toast.error("Failed to save: " + (e instanceof Error ? e.message : e));
+              toast.error(
+                "Failed to save: " + (e instanceof Error ? e.message : e),
+              );
             } finally {
               setSaving(false);
             }
@@ -317,18 +534,42 @@ export function SettingsView() {
           saving={saving}
         >
           {editingSection === "git" ? (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-[11px]">
-              <Field label="Branch Prefix">
-                <input className={inputClass} value={(sectionForm as Record<string, unknown>).branch_prefix as string} onChange={(e) => updateField("branch_prefix", e.target.value)} />
-              </Field>
-              <Field label="Default Repository">
-                <input className={inputClass} value={((sectionForm as Record<string, unknown>)._routing as Record<string, unknown> | undefined)?.default_repository as string ?? config.routing.default_repository ?? ""} onChange={(e) => updateField("_routing", { default_repository: e.target.value || null })} placeholder="none" />
-              </Field>
+            <div
+              className="grid grid-cols-2"
+              style={{ columnGap: 16, rowGap: 12 }}
+            >
+              <Input
+                name="branch_prefix"
+                label="Branch Prefix"
+                value={(sectionForm as Record<string, unknown>).branch_prefix as string}
+                onChange={(e) => updateField("branch_prefix", e.target.value)}
+              />
+              <Input
+                name="default_repository"
+                label="Default Repository"
+                value={
+                  (((sectionForm as Record<string, unknown>)._routing as Record<string, unknown> | undefined)?.default_repository as string) ??
+                  config.routing.default_repository ??
+                  ""
+                }
+                onChange={(e) =>
+                  updateField("_routing", {
+                    default_repository: e.target.value || null,
+                  })
+                }
+                placeholder="none"
+              />
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+            <div
+              className="grid grid-cols-2"
+              style={{ columnGap: 16, rowGap: 4, fontSize: 11 }}
+            >
               <KV label="Branch Prefix" value={config.git.branch_prefix} />
-              <KV label="Default Repository" value={config.routing.default_repository || "none"} />
+              <KV
+                label="Default Repository"
+                value={config.routing.default_repository || "none"}
+              />
             </div>
           )}
         </ConfigSection>
@@ -361,32 +602,64 @@ function ConfigSection({
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-[var(--color-base-200)] border border-[var(--border-color)] rounded-[var(--rounded-box)] p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <h3 className="text-[11px] font-semibold text-[var(--fg2)] uppercase tracking-wide">{title}</h3>
+    <Card tone="default" padding={4}>
+      <div
+        className="flex items-center justify-between"
+        style={{ marginBottom: 12 }}
+      >
+        <div className="flex items-center" style={{ gap: 8 }}>
+          <h3
+            style={{
+              fontSize: "var(--text-label-md)",
+              fontWeight: 700,
+              color: "var(--c-fog-300)",
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+            }}
+          >
+            {title}
+          </h3>
           {subtitle && (
-            <span className="text-[9px] text-[var(--fg3)]">({subtitle})</span>
+            <span
+              style={{
+                fontSize: 9,
+                color: "var(--c-steel-300)",
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              ({subtitle})
+            </span>
           )}
         </div>
         {editable && !isEditing && (
-          <button className="btn-default" style={{ padding: "2px 8px", fontSize: "10px" }} onClick={onEdit}>
+          <Button size="xs" variant="secondary" onClick={onEdit}>
             Edit
-          </button>
+          </Button>
         )}
         {isEditing && (
-          <div className="flex gap-1">
-            <button className="btn-primary" style={{ padding: "2px 8px", fontSize: "10px" }} onClick={onSave} disabled={saving}>
-              {saving ? "Saving..." : "Save"}
-            </button>
-            <button className="btn-default" style={{ padding: "2px 8px", fontSize: "10px" }} onClick={onCancel} disabled={saving}>
+          <div className="flex" style={{ gap: 4 }}>
+            <Button
+              size="xs"
+              variant="primary"
+              onClick={onSave}
+              disabled={saving}
+              isLoading={saving}
+            >
+              {saving ? "Saving" : "Save"}
+            </Button>
+            <Button
+              size="xs"
+              variant="secondary"
+              onClick={onCancel}
+              disabled={saving}
+            >
               Cancel
-            </button>
+            </Button>
           </div>
         )}
       </div>
       {children}
-    </div>
+    </Card>
   );
 }
 
@@ -398,32 +671,65 @@ function PolicyEditForm({
   updateField: (key: string, value: unknown) => void;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-[11px]">
-      <Field label="Assignee">
-        <input className={inputClass} value={form.assignee as string} onChange={(e) => updateField("assignee", e.target.value)} />
-      </Field>
-      <Field label="Required Status">
-        <input className={inputClass} value={form.required_status as string} onChange={(e) => updateField("required_status", e.target.value)} />
-      </Field>
-      <Field label="Required Label">
-        <input className={inputClass} value={form.required_label as string} onChange={(e) => updateField("required_label", e.target.value)} />
-      </Field>
-      <Field label="Allowed Issue Types (comma-separated)">
-        <input
-          className={inputClass}
-          value={(form.allowed_issue_types as string[]).join(", ")}
-          onChange={(e) => updateField("allowed_issue_types", e.target.value.split(",").map((s) => s.trim()).filter(Boolean))}
-        />
-      </Field>
-      <Field label="Max Changed Files">
-        <input type="number" className={inputClass} value={form.max_changed_files as number} onChange={(e) => updateField("max_changed_files", Number(e.target.value))} />
-      </Field>
-      <Field label="Max Changed Lines">
-        <input type="number" className={inputClass} value={form.max_changed_lines as number} onChange={(e) => updateField("max_changed_lines", Number(e.target.value))} />
-      </Field>
-      <Field label="Min Description Length">
-        <input type="number" className={inputClass} value={form.description_min_length as number} onChange={(e) => updateField("description_min_length", Number(e.target.value))} />
-      </Field>
+    <div className="grid grid-cols-2" style={{ columnGap: 16, rowGap: 12 }}>
+      <Input
+        name="assignee"
+        label="Assignee"
+        value={form.assignee as string}
+        onChange={(e) => updateField("assignee", e.target.value)}
+      />
+      <Input
+        name="required_status"
+        label="Required Status"
+        value={form.required_status as string}
+        onChange={(e) => updateField("required_status", e.target.value)}
+      />
+      <Input
+        name="required_label"
+        label="Required Label"
+        value={form.required_label as string}
+        onChange={(e) => updateField("required_label", e.target.value)}
+      />
+      <Input
+        name="allowed_issue_types"
+        label="Allowed Issue Types (comma-separated)"
+        value={(form.allowed_issue_types as string[]).join(", ")}
+        onChange={(e) =>
+          updateField(
+            "allowed_issue_types",
+            e.target.value
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean),
+          )
+        }
+      />
+      <Input
+        name="max_changed_files"
+        label="Max Changed Files"
+        type="number"
+        inputMode="numeric"
+        value={form.max_changed_files as number}
+        onChange={(e) => updateField("max_changed_files", Number(e.target.value))}
+      />
+      <Input
+        name="max_changed_lines"
+        label="Max Changed Lines"
+        type="number"
+        inputMode="numeric"
+        value={form.max_changed_lines as number}
+        onChange={(e) => updateField("max_changed_lines", Number(e.target.value))}
+      />
+      <Input
+        name="description_min_length"
+        label="Min Description Length"
+        type="number"
+        inputMode="numeric"
+        value={form.description_min_length as number}
+        onChange={(e) =>
+          updateField("description_min_length", Number(e.target.value))
+        }
+      />
     </div>
   );
 }
@@ -455,26 +761,58 @@ function ExecutorsEditForm({
   };
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-3 gap-x-4 gap-y-3 text-[11px]">
-        <Field label="Default Planner">
-          <select className={inputClass} value={form.defaults.planner} onChange={(e) => updateDefaults("planner", e.target.value)}>
-            {profileNames.map((n) => <option key={n} value={n}>{n}</option>)}
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div className="grid grid-cols-3" style={{ columnGap: 16, rowGap: 12 }}>
+        <FieldGroup label="Default Planner">
+          <select
+            name="defaults.planner"
+            value={form.defaults.planner}
+            onChange={(e) => updateDefaults("planner", e.target.value)}
+            style={selectStyle}
+          >
+            {profileNames.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
           </select>
-        </Field>
-        <Field label="Default Executor">
-          <select className={inputClass} value={form.defaults.executor} onChange={(e) => updateDefaults("executor", e.target.value)}>
-            {profileNames.map((n) => <option key={n} value={n}>{n}</option>)}
+        </FieldGroup>
+        <FieldGroup label="Default Executor">
+          <select
+            name="defaults.executor"
+            value={form.defaults.executor}
+            onChange={(e) => updateDefaults("executor", e.target.value)}
+            style={selectStyle}
+          >
+            {profileNames.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
           </select>
-        </Field>
-        <Field label="Default Reviewer">
-          <select className={inputClass} value={form.defaults.reviewer} onChange={(e) => updateDefaults("reviewer", e.target.value)}>
-            {profileNames.map((n) => <option key={n} value={n}>{n}</option>)}
+        </FieldGroup>
+        <FieldGroup label="Default Reviewer">
+          <select
+            name="defaults.reviewer"
+            value={form.defaults.reviewer}
+            onChange={(e) => updateDefaults("reviewer", e.target.value)}
+            style={selectStyle}
+          >
+            {profileNames.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
           </select>
-        </Field>
+        </FieldGroup>
       </div>
       {Object.entries(form.profiles).map(([name, profile]) => (
-        <ProfileEditCard key={name} name={name} profile={profile} onUpdate={(k, v) => updateProfile(name, k, v)} />
+        <ProfileEditCard
+          key={name}
+          name={name}
+          profile={profile}
+          onUpdate={(k, v) => updateProfile(name, k, v)}
+        />
       ))}
     </div>
   );
@@ -501,36 +839,72 @@ function ModelSearchSelect({
       .finally(() => setLoading(false));
   }, []);
 
-  // Sync query when value changes externally
   useEffect(() => {
     setQuery(value);
   }, [value]);
 
-  const filtered = query.trim().length > 0
-    ? models
-        .filter((m) =>
-          m.id.toLowerCase().includes(query.toLowerCase()) ||
-          m.name.toLowerCase().includes(query.toLowerCase()),
-        )
-        .slice(0, 30)
-    : models.slice(0, 30);
+  const filtered =
+    query.trim().length > 0
+      ? models
+          .filter(
+            (m) =>
+              m.id.toLowerCase().includes(query.toLowerCase()) ||
+              m.name.toLowerCase().includes(query.toLowerCase()),
+          )
+          .slice(0, 30)
+      : models.slice(0, 30);
 
   return (
-    <div className="relative">
-      <input
-        className={inputClass}
+    <div style={{ position: "relative" }}>
+      <Input
+        name="model"
         value={query}
-        placeholder={loading ? "Loading models..." : "Search or type model ID..."}
-        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+        placeholder={loading ? "Loading models…" : "Search or type model ID…"}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setOpen(true);
+        }}
         onFocus={() => setOpen(true)}
-        onBlur={() => { closeTimer.current = setTimeout(() => setOpen(false), 150); }}
+        onBlur={() => {
+          closeTimer.current = setTimeout(() => setOpen(false), 150);
+        }}
+        autoComplete="off"
+        spellCheck={false}
       />
       {open && filtered.length > 0 && (
-        <div className="absolute z-10 w-full bg-[var(--color-base-200)] border border-[var(--border-color)] rounded-[var(--rounded-box)] mt-0.5 max-h-48 overflow-y-auto text-xs shadow-lg">
+        <div
+          role="listbox"
+          style={{
+            position: "absolute",
+            zIndex: 10,
+            width: "100%",
+            background: "var(--surface-1)",
+            border: "1px solid var(--hairline)",
+            borderRadius: "var(--radius-sm)",
+            marginTop: 2,
+            maxHeight: 192,
+            overflowY: "auto",
+            fontSize: "var(--text-body-sm)",
+            boxShadow: "var(--glow-blue), 0 12px 24px rgba(0, 0, 0, 0.4)",
+          }}
+        >
           {filtered.map((m) => (
             <div
               key={m.id}
-              className="px-3 py-1.5 hover:bg-[var(--color-base-300)] cursor-pointer"
+              role="option"
+              aria-selected={query === m.id}
+              tabIndex={0}
+              style={{
+                padding: "6px 12px",
+                cursor: "pointer",
+                transition: "background var(--dur-fast) var(--ease-out)",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "var(--surface-2)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent";
+              }}
               onMouseDown={() => {
                 if (closeTimer.current) clearTimeout(closeTimer.current);
                 onChange(m.id);
@@ -538,9 +912,17 @@ function ModelSearchSelect({
                 setOpen(false);
               }}
             >
-              <span className="text-[#e6edf3]">{m.id}</span>
+              <span style={{ color: "var(--c-bone)" }}>{m.id}</span>
               {m.name !== m.id && (
-                <span className="ml-2 text-[var(--fg3)] text-[10px]">{m.name}</span>
+                <span
+                  style={{
+                    marginLeft: 8,
+                    color: "var(--c-steel-300)",
+                    fontSize: 10,
+                  }}
+                >
+                  {m.name}
+                </span>
               )}
             </div>
           ))}
@@ -560,46 +942,118 @@ function ProfileEditCard({
   onUpdate: (key: string, value: unknown) => void;
 }) {
   return (
-    <div className="bg-[var(--color-base-100)] rounded-[var(--rounded-box)] p-3">
-      <div className="font-semibold text-xs text-[#58a6ff] mb-2">{name}</div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3 text-[11px]">
-        <Field label="Model">
-          <ModelSearchSelect value={profile.model} onChange={(v) => onUpdate("model", v)} />
-        </Field>
-        <Field label="Base URL">
-          <input className={inputClass} value={profile.base_url} onChange={(e) => onUpdate("base_url", e.target.value)} />
-        </Field>
-        <Field label="API Key Env">
-          <input className={inputClass} value={profile.api_key_env} onChange={(e) => onUpdate("api_key_env", e.target.value)} />
-        </Field>
-        <Field label="Temperature">
-          <input type="number" step="0.1" min="0" max="2" className={inputClass} value={profile.temperature} onChange={(e) => onUpdate("temperature", Number(e.target.value))} />
-        </Field>
-        <Field label="Max Actions">
-          <input type="number" className={inputClass} value={profile.max_actions} onChange={(e) => onUpdate("max_actions", Number(e.target.value))} />
-        </Field>
-        <Field label="Timeout (seconds)">
-          <input type="number" className={inputClass} value={profile.timeout_seconds} onChange={(e) => onUpdate("timeout_seconds", Number(e.target.value))} />
-        </Field>
-        <Field label="Thinking Budget (tokens)">
-          <input type="number" className={inputClass} value={profile.thinking_budget_tokens ?? 5000} onChange={(e) => onUpdate("thinking_budget_tokens", Number(e.target.value))} />
-        </Field>
+    <div
+      style={{
+        background: "var(--surface-0)",
+        border: "1px solid var(--hairline)",
+        borderRadius: "var(--radius-sm)",
+        padding: 12,
+      }}
+    >
+      <div
+        style={{
+          fontFamily: "var(--font-display)",
+          fontWeight: 700,
+          fontSize: "var(--text-body-sm)",
+          color: "var(--c-blue-200)",
+          marginBottom: 10,
+        }}
+      >
+        {name}
       </div>
-      <div className="mt-2">
-        <CheckField
+      <div
+        className="grid grid-cols-2 sm:grid-cols-3"
+        style={{ columnGap: 16, rowGap: 12 }}
+      >
+        <FieldGroup label="Model">
+          <ModelSearchSelect
+            value={profile.model}
+            onChange={(v) => onUpdate("model", v)}
+          />
+        </FieldGroup>
+        <Input
+          name="base_url"
+          label="Base URL"
+          value={profile.base_url}
+          onChange={(e) => onUpdate("base_url", e.target.value)}
+        />
+        <Input
+          name="api_key_env"
+          label="API Key Env"
+          value={profile.api_key_env}
+          onChange={(e) => onUpdate("api_key_env", e.target.value)}
+        />
+        <Input
+          name="temperature"
+          label="Temperature"
+          type="number"
+          step="0.1"
+          min="0"
+          max="2"
+          value={profile.temperature}
+          onChange={(e) => onUpdate("temperature", Number(e.target.value))}
+        />
+        <Input
+          name="max_actions"
+          label="Max Actions"
+          type="number"
+          inputMode="numeric"
+          value={profile.max_actions}
+          onChange={(e) => onUpdate("max_actions", Number(e.target.value))}
+        />
+        <Input
+          name="timeout_seconds"
+          label="Timeout (seconds)"
+          type="number"
+          inputMode="numeric"
+          value={profile.timeout_seconds}
+          onChange={(e) => onUpdate("timeout_seconds", Number(e.target.value))}
+        />
+        <Input
+          name="thinking_budget_tokens"
+          label="Thinking Budget (tokens)"
+          type="number"
+          inputMode="numeric"
+          value={profile.thinking_budget_tokens ?? 5000}
+          onChange={(e) =>
+            onUpdate("thinking_budget_tokens", Number(e.target.value))
+          }
+        />
+      </div>
+      <div style={{ marginTop: 10 }}>
+        <Checkbox
+          name="thinking_enabled"
           label="Enable thinking tokens (Claude / o-series models only)"
           checked={profile.thinking_enabled ?? false}
-          onChange={(v) => onUpdate("thinking_enabled", v)}
+          onChange={(e) => onUpdate("thinking_enabled", e.target.checked)}
         />
       </div>
     </div>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function FieldGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
-      <label className="block text-xs text-[var(--fg2)] mb-1">{label}</label>
+      <label
+        style={{
+          display: "block",
+          fontSize: "var(--text-label-md)",
+          fontWeight: 600,
+          color: "var(--c-fog-300)",
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </label>
       {children}
     </div>
   );
@@ -608,8 +1062,15 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function KV({ label, value }: { label: string; value: string }) {
   return (
     <>
-      <span className="text-[var(--fg2)]">{label}</span>
-      <span className="text-[var(--color-base-content)]">{value}</span>
+      <span style={{ color: "var(--c-fog-300)" }}>{label}</span>
+      <span
+        style={{
+          color: "var(--c-fog-100)",
+          fontFamily: "var(--font-mono)",
+        }}
+      >
+        {value}
+      </span>
     </>
   );
 }
@@ -617,27 +1078,43 @@ function KV({ label, value }: { label: string; value: string }) {
 function BoolKV({ label, value }: { label: string; value: boolean }) {
   return (
     <>
-      <span className="text-[var(--fg2)]">{label}</span>
-      <span className={value ? "text-[#3fb950]" : "text-[#f85149]"}>
+      <span style={{ color: "var(--c-fog-300)" }}>{label}</span>
+      <span
+        style={{
+          color: value ? "var(--c-success-fg)" : "var(--c-error-fg)",
+          fontWeight: 600,
+        }}
+      >
         {value ? "yes" : "no"}
       </span>
     </>
   );
 }
 
-function CheckField({
+function CommandPills({
   label,
-  checked,
-  onChange,
+  commands,
 }: {
   label: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
+  commands: string[];
 }) {
   return (
-    <label className="flex items-center gap-2 text-xs text-[var(--fg2)] cursor-pointer">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="accent-[#58a6ff]" />
-      {label}
-    </label>
+    <div style={{ marginBottom: 10 }}>
+      <span style={{ color: "var(--c-fog-300)" }}>{label}:</span>
+      {commands.length > 0 ? (
+        <div
+          className="flex flex-wrap"
+          style={{ gap: 4, marginTop: 6 }}
+        >
+          {commands.map((cmd, i) => (
+            <Badge key={i} tone="neutral" size="sm">
+              {cmd}
+            </Badge>
+          ))}
+        </div>
+      ) : (
+        <span style={{ color: "var(--c-steel-300)", marginLeft: 6 }}>none</span>
+      )}
+    </div>
   );
 }

@@ -3,7 +3,48 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Arche Dashboard</title>
+    <meta name="theme-color" content="#07090c" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="description" content="Arche — self-hosted development agent orchestrator. Run console." />
+    <title>Arche — Run Console</title>
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="alternate icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="alternate icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="/fonts/geist-mono-400.woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="/fonts/instrument-sans-700.woff2"
+      crossorigin
+    />
+
+    <style>
+      /* Critical inline CSS — prevents pre-hydration flash. Mirrors the
+         token defaults from /src/index.css so the first paint already
+         matches the dark Arche surface. */
+      html, body { margin: 0; padding: 0; }
+      html { background: #07090c; color-scheme: dark; }
+      body {
+        background: #07090c;
+        color: #c2cad6;
+        font-family: "Geist Mono", "SF Mono", "Cascadia Code",
+                     "Fira Code", "Consolas", monospace;
+        font-size: 13px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+      #root { min-height: 100vh; }
+    </style>
   </head>
   <body>
     <div id="root"></div>

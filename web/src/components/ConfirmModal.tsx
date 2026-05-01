@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { Modal } from "./Modal";
+import { Modal, ModalTitle, ModalBody, ModalActions } from "./Modal";
+import { Button } from "./ui/Button";
 
 export function ConfirmModal({
   isOpen,
@@ -29,21 +30,17 @@ export function ConfirmModal({
   }, [isOpen, onConfirm]);
 
   return (
-    <Modal isOpen={isOpen} onClose={onCancel} labelledBy="confirm-modal-title">
-      <h3 id="confirm-modal-title" className="mb-2 font-semibold">
-        {title}
-      </h3>
-      <p id="confirm-modal-body" className="text-xs text-[var(--fg2)] mb-4">
-        {body}
-      </p>
-      <div className="flex gap-2">
-        <button className="btn-danger" onClick={onConfirm}>
+    <Modal isOpen={isOpen} onClose={onCancel} labelledBy="confirm-modal-title" size="sm">
+      <ModalTitle id="confirm-modal-title">{title}</ModalTitle>
+      <ModalBody>{body}</ModalBody>
+      <ModalActions>
+        <Button variant="danger" onClick={onConfirm}>
           {confirmLabel}
-        </button>
-        <button className="btn-default" onClick={onCancel}>
+        </Button>
+        <Button variant="secondary" onClick={onCancel}>
           Cancel
-        </button>
-      </div>
+        </Button>
+      </ModalActions>
     </Modal>
   );
 }

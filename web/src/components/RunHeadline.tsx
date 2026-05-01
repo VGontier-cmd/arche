@@ -4,37 +4,38 @@ import {
   CircleDashed,
   Eye,
   Hammer,
-  PartyPopper,
   Search,
   Upload,
   type LucideIcon,
 } from "lucide-react";
 import type { DashboardRun } from "../types";
+import { Card } from "./ui/Card";
 
 /**
- * Big "what's happening" headline + live cost ticker. Sits above the meta
- * grid in the detail pane so audience members watching a demo can instantly
- * see (a) which of the 5 pipeline phases the run is in, (b) what the
- * cumulative LLM bill looks like in real time.
+ * Big "what's happening" headline + live cost ticker.
  *
- * The cost is animated with a smooth count-up between snapshots so each
- * SSE-driven refresh feels like a live odometer rather than a value jump.
+ * Visual identity contract:
+ * - Headline runs in the display face (the only display-face moment in the
+ *   pane), tone-driven via the same status palette as StatusPill.
+ * - Phase diagram swaps the round dots for keystone-shaped wedges so the
+ *   architecture metaphor recurs at the run level.
+ * - Cost ticker promoted to display-lg gold for prominence; it's the
+ *   "odometer" of the demo.
  */
 
 type PhaseConfig = {
   key: string;
   label: string;
   Icon: LucideIcon;
-  /** statuses that map to this phase (excluding terminal) */
   statuses: string[];
 };
 
 const PHASES: PhaseConfig[] = [
-  { key: "research", label: "Researching", Icon: Search,       statuses: ["researching"] },
-  { key: "plan",     label: "Planning",    Icon: CircleDashed, statuses: ["planning", "awaiting_plan_approval"] },
-  { key: "execute",  label: "Executing",   Icon: Hammer,       statuses: ["executing"] },
-  { key: "review",   label: "Reviewing",   Icon: Eye,          statuses: ["reviewing", "awaiting_publish_approval"] },
-  { key: "publish",  label: "Publishing",  Icon: Upload,       statuses: ["publishing", "publish_approved", "pushed", "success"] },
+  { key: "research", label: "Research",   Icon: Search,       statuses: ["researching"] },
+  { key: "plan",     label: "Plan",       Icon: CircleDashed, statuses: ["planning", "awaiting_plan_approval"] },
+  { key: "execute",  label: "Execute",    Icon: Hammer,       statuses: ["executing"] },
+  { key: "review",   label: "Review",     Icon: Eye,          statuses: ["reviewing", "awaiting_publish_approval"] },
+  { key: "publish",  label: "Publish",    Icon: Upload,       statuses: ["publishing", "publish_approved", "pushed", "success"] },
 ];
 
 const TERMINAL = new Set(["success", "pushed"]);
@@ -47,7 +48,12 @@ function activePhaseIndex(status: string): number {
   return -1;
 }
 
-function statusHeadline(status: string, role: string | null): { text: string; tone: "active" | "wait" | "done" | "fail" } {
+type Tone = "active" | "wait" | "done" | "fail";
+
+function statusHeadline(
+  status: string,
+  role: string | null,
+): { text: string; tone: Tone } {
   switch (status) {
     case "pending":                   return { text: "Queued — waiting for a worker", tone: "wait" };
     case "researching":               return { text: "Reading the codebase…", tone: "active" };
@@ -68,37 +74,128 @@ function statusHeadline(status: string, role: string | null): { text: string; to
   }
 }
 
-const TONE_STYLES: Record<string, string> = {
-  active: "text-[#58a6ff]",
-  wait:   "text-[#d29922]",
-  done:   "text-[#3fb950]",
-  fail:   "text-[#f85149]",
-};
+function toneColor(tone: Tone): string {
+  switch (tone) {
+    case "active": return "var(--c-blue-200)";
+    case "wait":   return "var(--c-gold-300)";
+    case "done":   return "var(--c-success-fg)";
+    case "fail":   return "var(--c-error-fg)";
+  }
+}
+
+function toneAccent(tone: Tone): "primary" | "accent" | "success" | "error" {
+  switch (tone) {
+    case "active": return "primary";
+    case "wait":   return "accent";
+    case "done":   return "success";
+    case "fail":   return "error";
+  }
+}
 
 export const RunHeadline = memo(function RunHeadline({ run }: { run: DashboardRun }) {
   const phaseIdx = activePhaseIndex(run.status);
   const isTerminalSuccess = TERMINAL.has(run.status);
   const isHumanGate = HUMAN_GATES.has(run.status);
   const headline = statusHeadline(run.status, run.currentRole);
+  const headlineColor = toneColor(headline.tone);
 
   return (
-    <div className="mb-4 flex items-start justify-between gap-4 px-4 py-3 bg-[var(--color-base-200)] border border-[var(--border-color)] rounded-[var(--rounded-box)]">
-      <div className="flex-1 min-w-0">
-        <div className={`text-sm font-semibold leading-snug flex items-center gap-1.5 ${TONE_STYLES[headline.tone] ?? ""}`}>
-          {headline.tone === "done" && <PartyPopper size={16} strokeWidth={2} aria-hidden="true" />}
-          <span>{headline.text}</span>
-          {headline.tone === "active" && (
-            <span className="inline-block w-1 h-3 ml-0.5 align-middle bg-current animate-pulse" />
-          )}
+    <Card
+      tone="default"
+      accent={toneAccent(headline.tone)}
+      padding={4}
+      glow={headline.tone === "active" ? "blue" : headline.tone === "wait" ? "gold" : undefined}
+      className="mb-4"
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <div
+            aria-live="polite"
+            className="flex items-center"
+            style={{
+              gap: 8,
+              fontFamily: "var(--font-display)",
+              fontSize: "var(--text-display-md)",
+              fontWeight: 700,
+              letterSpacing: "-0.015em",
+              lineHeight: 1.2,
+              color: headlineColor,
+            }}
+          >
+            <span>{headline.text}</span>
+            {headline.tone === "active" && (
+              <span
+                aria-hidden="true"
+                style={{
+                  display: "inline-block",
+                  width: 3,
+                  height: 18,
+                  background: "currentColor",
+                  animation: "pulse 1.4s var(--ease-in-out) infinite",
+                }}
+              />
+            )}
+          </div>
+          <div style={{ marginTop: 14 }}>
+            <PhaseDiagram
+              activeIdx={phaseIdx}
+              terminalSuccess={isTerminalSuccess}
+              humanGate={isHumanGate}
+            />
+          </div>
         </div>
-        <div className="mt-2.5">
-          <PhaseDiagram activeIdx={phaseIdx} terminalSuccess={isTerminalSuccess} humanGate={isHumanGate} />
-        </div>
+        <CostTicker value={run.estimatedCostUsd} />
       </div>
-      <CostTicker value={run.estimatedCostUsd} />
-    </div>
+    </Card>
   );
 });
+
+function PhaseDot({
+  state,
+  Icon,
+}: {
+  state: "complete" | "active" | "wait" | "future";
+  Icon: LucideIcon;
+}) {
+  const fg =
+    state === "complete"
+      ? "var(--c-success-fg)"
+      : state === "active"
+      ? "var(--c-blue-200)"
+      : state === "wait"
+      ? "var(--c-gold-300)"
+      : "var(--c-steel-300)";
+  const bg =
+    state === "complete"
+      ? "var(--c-success-bg)"
+      : state === "active"
+      ? "var(--c-blue-950)"
+      : state === "wait"
+      ? "var(--c-gold-900)"
+      : "var(--surface-2)";
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 22,
+        height: 22,
+        flexShrink: 0,
+        background: bg,
+        color: fg,
+        borderRadius: "50%",
+      }}
+    >
+      {state === "complete" ? (
+        <Check size={12} strokeWidth={3} />
+      ) : (
+        <Icon size={12} strokeWidth={2.25} />
+      )}
+    </span>
+  );
+}
 
 function PhaseDiagram({
   activeIdx,
@@ -110,38 +207,49 @@ function PhaseDiagram({
   humanGate: boolean;
 }) {
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center" style={{ gap: 4 }}>
       {PHASES.map((phase, i) => {
         const isActive = i === activeIdx;
         const isComplete = terminalSuccess || (activeIdx >= 0 && i < activeIdx);
-        const dotClass = isComplete
-          ? "bg-[#3fb950] text-white"
+        const state: "complete" | "active" | "wait" | "future" = isComplete
+          ? "complete"
           : isActive
-            ? humanGate
-              ? "bg-[#d29922] text-white"
-              : "bg-[#58a6ff] text-white animate-pulse"
-            : "bg-[var(--color-base-300)] text-[var(--fg3)]";
-        const lineClass = isComplete ? "bg-[#3fb950]" : "bg-[var(--border-color)]";
+          ? humanGate
+            ? "wait"
+            : "active"
+          : "future";
+        const lineColor = isComplete
+          ? "var(--c-success-fg)"
+          : "var(--hairline)";
         return (
-          <div key={phase.key} className="flex items-center gap-1 flex-1">
-            <div
-              className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${dotClass}`}
-              title={phase.label}
-            >
-              {isComplete ? (
-                <Check size={12} strokeWidth={3} aria-hidden="true" />
-              ) : (
-                <phase.Icon size={12} strokeWidth={2.25} aria-hidden="true" />
-              )}
-            </div>
+          <div key={phase.key} className="flex items-center" style={{ gap: 6, flex: 1 }}>
+            <PhaseDot state={state} Icon={phase.Icon} />
             <span
-              className={`text-[10px] truncate ${
-                isActive ? "text-[var(--color-base-content)] font-semibold" : "text-[var(--fg3)]"
-              }`}
+              style={{
+                fontSize: 10,
+                fontWeight: isActive ? 700 : 500,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+                color: isActive
+                  ? "var(--c-fog-100)"
+                  : isComplete
+                  ? "var(--c-success-fg)"
+                  : "var(--c-steel-300)",
+                whiteSpace: "nowrap",
+              }}
             >
               {phase.label}
             </span>
-            {i < PHASES.length - 1 && <div className={`flex-1 h-px ${lineClass}`} />}
+            {i < PHASES.length - 1 && (
+              <div
+                style={{
+                  flex: 1,
+                  height: 1,
+                  background: lineColor,
+                  minWidth: 8,
+                }}
+              />
+            )}
           </div>
         );
       })}
@@ -169,7 +277,6 @@ function CostTicker({ value }: { value: number | string | null | undefined }) {
     const durationMs = 600;
     const tick = () => {
       const t = Math.min(1, (performance.now() - startTime) / durationMs);
-      // easeOutCubic
       const eased = 1 - Math.pow(1 - t, 3);
       const next = fromRef.current + (targetRef.current - fromRef.current) * eased;
       setDisplayed(next);
@@ -179,23 +286,44 @@ function CostTicker({ value }: { value: number | string | null | undefined }) {
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // `displayed` is intentionally omitted: it's the animation source value
+    // captured into fromRef on each new target, and including it would cause
+    // the tween to restart every frame.
   }, [numeric]);
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: 9,
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+    color: "var(--c-fog-300)",
+    fontWeight: 600,
+  };
+  const valueStyle = (color: string): React.CSSProperties => ({
+    fontFamily: "var(--font-display)",
+    fontSize: "var(--text-display-lg)",
+    fontWeight: 700,
+    letterSpacing: "-0.02em",
+    lineHeight: 1,
+    fontVariantNumeric: "tabular-nums",
+    color,
+    marginTop: 4,
+  });
 
   if (numeric === null) {
     return (
       <div className="text-right shrink-0">
-        <div className="text-[10px] uppercase tracking-wide text-[var(--fg3)]">cost</div>
-        <div className="text-2xl font-bold text-[var(--fg3)] tabular-nums leading-none">$0.0000</div>
+        <div style={labelStyle}>Cost</div>
+        <div style={valueStyle("var(--c-steel-300)")}>$0.0000</div>
       </div>
     );
   }
   return (
-    <div className="text-right shrink-0" title={`Cumulative LLM cost: $${numeric.toFixed(6)}`}>
-      <div className="text-[10px] uppercase tracking-wide text-[var(--fg3)]">cost</div>
-      <div className="text-2xl font-bold text-[#39d2c0] tabular-nums leading-none">
-        ${displayed.toFixed(4)}
-      </div>
+    <div
+      className="text-right shrink-0"
+      title={`Cumulative LLM cost: $${numeric.toFixed(6)}`}
+    >
+      <div style={labelStyle}>Cost</div>
+      <div style={valueStyle("var(--c-gold-300)")}>${displayed.toFixed(4)}</div>
     </div>
   );
 }

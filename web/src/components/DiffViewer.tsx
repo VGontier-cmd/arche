@@ -1,34 +1,150 @@
 import { useMemo, useState } from "react";
+import { Button } from "./ui/Button";
+import { Badge } from "./ui/Badge";
 
 const MAX_AUTO_LINES = 500;
 
-function computeDiffStats(lines: string[]) {
-  let additions = 0;
-  let deletions = 0;
-  for (const line of lines) {
-    if (line.startsWith("+") && !line.startsWith("+++")) additions++;
-    else if (line.startsWith("-") && !line.startsWith("---")) deletions++;
-  }
-  return { additions, deletions };
+type LineKind = "header" | "addition" | "deletion" | "hunk" | "diff" | "context";
+
+interface ParsedLine {
+  kind: LineKind;
+  text: string;
+  // Source-side line numbers — null when the line belongs to the other side.
+  oldLineNo: number | null;
+  newLineNo: number | null;
+  /** True for the FIRST line of every file (so we can sticky the file header). */
+  isFileBoundary?: boolean;
+  /** Group identifier (file index) — used to break sticky headers cleanly. */
+  fileIndex: number;
 }
 
-function classifyLine(line: string): string {
-  if (line.startsWith("+++") || line.startsWith("---")) return "font-bold text-[var(--color-base-content)]";
-  if (line.startsWith("+")) return "text-[#3fb950] bg-[#3fb95015]";
-  if (line.startsWith("-")) return "text-[#f85149] bg-[#f8514915]";
-  if (line.startsWith("@@")) return "text-[#58a6ff]";
-  if (line.startsWith("diff ")) return "font-bold text-[var(--fg2)] mt-2";
-  return "text-[var(--fg2)]";
+function parseDiff(diff: string): ParsedLine[] {
+  if (!diff) return [];
+  const out: ParsedLine[] = [];
+  let oldNo = 0;
+  let newNo = 0;
+  let fileIndex = -1;
+  let nextIsFileBoundary = false;
+
+  for (const raw of diff.split("\n")) {
+    const line = raw;
+    if (line.startsWith("diff ") || (line.startsWith("--- ") && !line.startsWith("--- /"))) {
+      fileIndex += 1;
+      nextIsFileBoundary = true;
+    }
+    let kind: LineKind;
+    if (line.startsWith("+++") || line.startsWith("---")) kind = "header";
+    else if (line.startsWith("@@")) {
+      kind = "hunk";
+      // Parse the hunk header to reset line numbers
+      const m = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+      if (m) {
+        oldNo = parseInt(m[1]!, 10) - 1;
+        newNo = parseInt(m[2]!, 10) - 1;
+      }
+    } else if (line.startsWith("diff ")) kind = "diff";
+    else if (line.startsWith("+")) kind = "addition";
+    else if (line.startsWith("-")) kind = "deletion";
+    else kind = "context";
+
+    let oldLineNo: number | null = null;
+    let newLineNo: number | null = null;
+    if (kind === "context") {
+      oldNo += 1;
+      newNo += 1;
+      oldLineNo = oldNo;
+      newLineNo = newNo;
+    } else if (kind === "addition") {
+      newNo += 1;
+      newLineNo = newNo;
+    } else if (kind === "deletion") {
+      oldNo += 1;
+      oldLineNo = oldNo;
+    }
+
+    out.push({
+      kind,
+      text: line,
+      oldLineNo,
+      newLineNo,
+      fileIndex: Math.max(fileIndex, 0),
+      isFileBoundary: nextIsFileBoundary && (kind === "diff" || kind === "header"),
+    });
+    if (kind !== "diff" && kind !== "header") nextIsFileBoundary = false;
+  }
+  return out;
+}
+
+function lineStyle(kind: LineKind): React.CSSProperties {
+  switch (kind) {
+    case "header":
+      return {
+        color: "var(--c-bone)",
+        background: "var(--surface-2)",
+        fontWeight: 700,
+      };
+    case "diff":
+      return {
+        color: "var(--c-fog-300)",
+        background: "var(--surface-2)",
+        fontWeight: 700,
+      };
+    case "hunk":
+      return {
+        color: "var(--c-blue-200)",
+        background: "var(--c-blue-950)",
+      };
+    case "addition":
+      return {
+        color: "var(--c-success-fg)",
+        background: "var(--c-success-bg)",
+      };
+    case "deletion":
+      return {
+        color: "var(--c-error-fg)",
+        background: "var(--c-error-bg)",
+      };
+    case "context":
+    default:
+      return { color: "var(--c-fog-300)" };
+  }
+}
+
+function lineSymbol(kind: LineKind): string {
+  switch (kind) {
+    case "addition": return "+";
+    case "deletion": return "−";
+    case "hunk":     return "·";
+    default:         return " ";
+  }
 }
 
 export function DiffViewer({ diffExcerpt }: { diffExcerpt: string | null }) {
   const [expanded, setExpanded] = useState(false);
-  const lines = useMemo(() => (diffExcerpt ? diffExcerpt.split("\n") : []), [diffExcerpt]);
-  const stats = useMemo(() => computeDiffStats(lines), [lines]);
+  const lines = useMemo(() => parseDiff(diffExcerpt || ""), [diffExcerpt]);
+
+  const stats = useMemo(() => {
+    let additions = 0;
+    let deletions = 0;
+    for (const l of lines) {
+      if (l.kind === "addition") additions++;
+      else if (l.kind === "deletion") deletions++;
+    }
+    return { additions, deletions };
+  }, [lines]);
 
   if (!diffExcerpt) {
     return (
-      <p className="text-xs text-[var(--fg3)] py-4 text-center">No diff available yet.</p>
+      <p
+        style={{
+          fontSize: "var(--text-body-sm)",
+          color: "var(--c-steel-300)",
+          padding: "16px 0",
+          textAlign: "center",
+        }}
+      >
+        No diff available yet.
+      </p>
     );
   }
 
@@ -39,42 +155,149 @@ export function DiffViewer({ diffExcerpt }: { diffExcerpt: string | null }) {
   return (
     <div>
       {/* Stats bar */}
-      <div className="flex items-center gap-3 mb-3 text-xs text-[var(--fg2)]">
+      <div
+        className="flex items-center"
+        style={{
+          gap: 10,
+          marginBottom: 12,
+          fontSize: "var(--text-body-sm)",
+          color: "var(--c-fog-300)",
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
         <span>{lines.length.toLocaleString()} lines</span>
-        {stats.additions > 0 && <span className="text-[#3fb950] font-semibold">+{stats.additions}</span>}
-        {stats.deletions > 0 && <span className="text-[#f85149] font-semibold">−{stats.deletions}</span>}
+        {stats.additions > 0 && (
+          <Badge tone="success" size="md">
+            +{stats.additions.toLocaleString()}
+          </Badge>
+        )}
+        {stats.deletions > 0 && (
+          <Badge tone="danger" size="md">
+            −{stats.deletions.toLocaleString()}
+          </Badge>
+        )}
         {isLarge && (
-          <span className="ml-auto text-[var(--fg3)]">
-            {expanded ? "Showing all" : `Showing first ${MAX_AUTO_LINES.toLocaleString()} of ${lines.length.toLocaleString()}`}
+          <span
+            style={{ marginLeft: "auto", color: "var(--c-steel-300)", fontSize: 11 }}
+          >
+            {expanded
+              ? "Showing all"
+              : `Showing first ${MAX_AUTO_LINES.toLocaleString()} of ${lines.length.toLocaleString()}`}
           </span>
         )}
       </div>
 
-      <pre className="text-[11px] overflow-auto bg-[var(--color-base-200)] border border-[var(--border-color)] p-3 rounded-[var(--rounded-box)] leading-relaxed max-h-[60vh]">
-        {visibleLines.map((line, i) => (
-          <div key={i} className={classifyLine(line)}>
-            {line || "\u00A0"}
-          </div>
-        ))}
-      </pre>
+      <div
+        style={{
+          background: "var(--surface-1)",
+          border: "1px solid var(--hairline)",
+          borderRadius: "var(--radius-md)",
+          maxHeight: "60vh",
+          overflow: "auto",
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          lineHeight: 1.55,
+        }}
+      >
+        {visibleLines.map((line, i) => {
+          const isFileHead = line.kind === "header" || line.kind === "diff";
+          return (
+            <div
+              key={i}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "44px 44px 16px 1fr",
+                alignItems: "stretch",
+                ...lineStyle(line.kind),
+                position: isFileHead ? "sticky" : undefined,
+                top: isFileHead ? 0 : undefined,
+                zIndex: isFileHead ? 2 : undefined,
+                borderTop: line.isFileBoundary
+                  ? "1px solid var(--hairline-strong)"
+                  : undefined,
+              }}
+            >
+              {/* Old line number */}
+              <span
+                aria-hidden="true"
+                style={{
+                  textAlign: "right",
+                  padding: "0 6px 0 8px",
+                  color: "var(--c-steel-300)",
+                  borderRight: "1px solid var(--hairline)",
+                  userSelect: "none",
+                  fontVariantNumeric: "tabular-nums",
+                  background: "var(--surface-1)",
+                }}
+              >
+                {line.oldLineNo ?? ""}
+              </span>
+              {/* New line number */}
+              <span
+                aria-hidden="true"
+                style={{
+                  textAlign: "right",
+                  padding: "0 6px 0 8px",
+                  color: "var(--c-steel-300)",
+                  borderRight: "1px solid var(--hairline)",
+                  userSelect: "none",
+                  fontVariantNumeric: "tabular-nums",
+                  background: "var(--surface-1)",
+                }}
+              >
+                {line.newLineNo ?? ""}
+              </span>
+              {/* Symbol gutter */}
+              <span
+                aria-hidden="true"
+                style={{
+                  textAlign: "center",
+                  fontWeight: 700,
+                  userSelect: "none",
+                  color: "currentColor",
+                  opacity: 0.7,
+                }}
+              >
+                {lineSymbol(line.kind)}
+              </span>
+              {/* Text */}
+              <span
+                style={{
+                  padding: "0 8px",
+                  whiteSpace: "pre",
+                }}
+              >
+                {/* Strip the leading +/- so the symbol gutter carries it */}
+                {line.kind === "addition" || line.kind === "deletion"
+                  ? line.text.slice(1) || " "
+                  : line.text || " "}
+              </span>
+            </div>
+          );
+        })}
+      </div>
 
       {isLarge && !expanded && (
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          className="mt-2 px-3 py-1.5 text-xs rounded-[var(--rounded-btn)] border border-[var(--border-color)] bg-[var(--color-base-200)] text-[var(--fg2)] hover:bg-[var(--color-base-300)] transition-colors"
-        >
-          Show full diff ({hiddenCount.toLocaleString()} more lines)
-        </button>
+        <div style={{ marginTop: 8 }}>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setExpanded(true)}
+          >
+            Show full diff ({hiddenCount.toLocaleString()} more lines)
+          </Button>
+        </div>
       )}
       {isLarge && expanded && (
-        <button
-          type="button"
-          onClick={() => setExpanded(false)}
-          className="mt-2 px-3 py-1.5 text-xs rounded-[var(--rounded-btn)] border border-[var(--border-color)] bg-[var(--color-base-200)] text-[var(--fg2)] hover:bg-[var(--color-base-300)] transition-colors"
-        >
-          Collapse to first {MAX_AUTO_LINES.toLocaleString()} lines
-        </button>
+        <div style={{ marginTop: 8 }}>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setExpanded(false)}
+          >
+            Collapse to first {MAX_AUTO_LINES.toLocaleString()} lines
+          </Button>
+        </div>
       )}
     </div>
   );

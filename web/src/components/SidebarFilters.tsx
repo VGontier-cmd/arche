@@ -1,4 +1,6 @@
 import { useCallback } from "react";
+import { Button } from "./ui/Button";
+import { ALL_STATUS_KEYS, statusMeta } from "./ui/tokens";
 
 export type FilterState = {
   statuses: Set<string>;
@@ -12,16 +14,19 @@ export const EMPTY_FILTERS: FilterState = {
   period: "all",
 };
 
-const ALL_STATUSES = [
-  { value: "pending",                   label: "Queued",          color: "#8b949e" },
-  { value: "awaiting_plan_approval",    label: "Plan ready",      color: "#d29922" },
-  { value: "executing",                 label: "Executing…",      color: "#58a6ff" },
-  { value: "needs_human_input",         label: "Waiting for you", color: "#d29922" },
-  { value: "awaiting_publish_approval", label: "Ready to ship",   color: "#d29922" },
-  { value: "success",                   label: "Success",         color: "#3fb950" },
-  { value: "pushed",                    label: "Shipped",         color: "#3fb950" },
-  { value: "failed",                    label: "Failed",          color: "#f85149" },
-  { value: "cancelled",                 label: "Cancelled",       color: "#8b949e" },
+// Surface only the statuses operators actually filter on. The full list
+// (including transient running phases) is in tokens.ts; here we promote a
+// curated subset and rely on `statusMeta()` to render them consistently.
+const FILTERABLE_STATUSES: ReadonlyArray<(typeof ALL_STATUS_KEYS)[number]> = [
+  "pending",
+  "awaiting_plan_approval",
+  "executing",
+  "needs_human_input",
+  "awaiting_publish_approval",
+  "success",
+  "pushed",
+  "failed",
+  "cancelled",
 ];
 
 const PERIODS: Array<{ value: FilterState["period"]; label: string }> = [
@@ -32,7 +37,11 @@ const PERIODS: Array<{ value: FilterState["period"]; label: string }> = [
 ];
 
 export function hasActiveFilters(filters: FilterState): boolean {
-  return filters.statuses.size > 0 || filters.repository !== "" || filters.period !== "all";
+  return (
+    filters.statuses.size > 0 ||
+    filters.repository !== "" ||
+    filters.period !== "all"
+  );
 }
 
 export function SidebarFilters({
@@ -59,73 +68,175 @@ export function SidebarFilters({
   }, [onChange]);
 
   return (
-    <div className="px-3 py-2 border-b border-[var(--border-color)] flex flex-col gap-2">
-      {/* Status filters */}
-      <div>
-        <span className="text-[10px] text-[var(--fg3)] uppercase tracking-wide">Status</span>
-        <div className="flex flex-wrap gap-1 mt-1">
-          {ALL_STATUSES.map((s) => {
-            const active = filters.statuses.has(s.value);
+    <div
+      style={{
+        padding: "10px 12px",
+        borderBottom: "1px solid var(--hairline)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        background: "var(--surface-1)",
+      }}
+    >
+      {/* Status filters — derived from the same token map as StatusPill */}
+      <FieldGroup label="Status">
+        <div className="flex flex-wrap" style={{ gap: 4 }}>
+          {FILTERABLE_STATUSES.map((key) => {
+            const active = filters.statuses.has(key);
+            const meta = statusMeta(key);
+            const tone =
+              meta.tone === "running"
+                ? "var(--c-blue-200)"
+                : meta.tone === "wait"
+                ? "var(--c-gold-300)"
+                : meta.tone === "done"
+                ? "var(--c-success-fg)"
+                : meta.tone === "fail"
+                ? "var(--c-error-fg)"
+                : "var(--c-fog-300)";
             return (
               <button
-                key={s.value}
-                onClick={() => toggleStatus(s.value)}
-                className="px-1.5 py-0.5 rounded text-[10px] transition-colors border"
+                key={key}
+                onClick={() => toggleStatus(key)}
+                aria-pressed={active}
                 style={{
-                  borderColor: active ? s.color : "var(--border-color)",
-                  backgroundColor: active ? `${s.color}20` : "transparent",
-                  color: active ? s.color : "var(--fg3)",
+                  padding: "2px 8px",
+                  borderRadius: "var(--radius-xs)",
+                  fontSize: 10,
+                  fontFamily: "inherit",
+                  border: `1px solid ${active ? tone : "var(--hairline)"}`,
+                  background: active ? "var(--surface-2)" : "transparent",
+                  color: active ? tone : "var(--c-steel-300)",
+                  cursor: "pointer",
+                  transition:
+                    "color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out)",
+                }}
+                onMouseEnter={(e) => {
+                  if (!active) e.currentTarget.style.color = "var(--c-fog-100)";
+                }}
+                onMouseLeave={(e) => {
+                  if (!active)
+                    e.currentTarget.style.color = "var(--c-steel-300)";
                 }}
               >
-                {s.label}
+                {meta.label}
               </button>
             );
           })}
         </div>
-      </div>
+      </FieldGroup>
 
       {/* Repository filter */}
       {repositories.length > 1 && (
-        <div>
-          <span className="text-[10px] text-[var(--fg3)] uppercase tracking-wide">Repository</span>
+        <FieldGroup label="Repository" htmlFor="filter-repository">
           <select
+            id="filter-repository"
             value={filters.repository}
             onChange={(e) => onChange({ ...filters, repository: e.target.value })}
-            className="mt-1 w-full bg-[var(--color-base-100)] border border-[var(--border-color)] rounded-[var(--rounded-box)] text-[var(--color-base-content)] px-2 py-1 text-[11px] font-[inherit] outline-none focus:border-[#58a6ff]"
+            style={{
+              marginTop: 4,
+              width: "100%",
+              background: "var(--surface-0)",
+              border: "1px solid var(--hairline)",
+              borderRadius: "var(--radius-sm)",
+              color: "var(--c-fog-100)",
+              padding: "5px 8px",
+              fontSize: 11,
+              fontFamily: "inherit",
+              outline: "none",
+            }}
           >
             <option value="">All repositories</option>
             {repositories.map((r) => (
-              <option key={r} value={r}>{r}</option>
+              <option key={r} value={r}>
+                {r}
+              </option>
             ))}
           </select>
-        </div>
+        </FieldGroup>
       )}
 
       {/* Period filter */}
-      <div className="flex items-center gap-1">
-        <span className="text-[10px] text-[var(--fg3)] uppercase tracking-wide mr-1">Period</span>
-        {PERIODS.map((p) => (
-          <button
-            key={p.value}
-            onClick={() => onChange({ ...filters, period: p.value })}
-            className={`px-2 py-0.5 rounded text-[10px] transition-colors ${
-              filters.period === p.value
-                ? "bg-[#58a6ff20] text-[#58a6ff] border border-[#58a6ff]"
-                : "text-[var(--fg3)] border border-[var(--border-color)] hover:text-[var(--fg2)]"
-            }`}
-          >
-            {p.label}
-          </button>
-        ))}
+      <div className="flex items-center" style={{ gap: 4 }}>
+        <span
+          style={{
+            fontSize: 10,
+            color: "var(--c-steel-300)",
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            fontWeight: 600,
+            marginRight: 4,
+          }}
+        >
+          Period
+        </span>
+        {PERIODS.map((p) => {
+          const active = filters.period === p.value;
+          return (
+            <button
+              key={p.value}
+              onClick={() => onChange({ ...filters, period: p.value })}
+              aria-pressed={active}
+              style={{
+                padding: "2px 9px",
+                borderRadius: "var(--radius-xs)",
+                fontSize: 10,
+                fontFamily: "inherit",
+                border: `1px solid ${active ? "var(--c-blue-400)" : "var(--hairline)"}`,
+                background: active ? "var(--c-blue-950)" : "transparent",
+                color: active ? "var(--c-blue-200)" : "var(--c-steel-300)",
+                cursor: "pointer",
+                transition:
+                  "color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out)",
+              }}
+              onMouseEnter={(e) => {
+                if (!active) e.currentTarget.style.color = "var(--c-fog-100)";
+              }}
+              onMouseLeave={(e) => {
+                if (!active) e.currentTarget.style.color = "var(--c-steel-300)";
+              }}
+            >
+              {p.label}
+            </button>
+          );
+        })}
         {hasActiveFilters(filters) && (
-          <button
-            onClick={clearAll}
-            className="ml-auto text-[10px] text-[var(--fg3)] hover:text-[#f85149] transition-colors"
-          >
-            Clear
-          </button>
+          <span style={{ marginLeft: "auto" }}>
+            <Button size="xs" variant="ghost" onClick={clearAll}>
+              Clear
+            </Button>
+          </span>
         )}
       </div>
+    </div>
+  );
+}
+
+function FieldGroup({
+  label,
+  htmlFor,
+  children,
+}: {
+  label: string;
+  htmlFor?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label
+        htmlFor={htmlFor}
+        style={{
+          fontSize: 10,
+          color: "var(--c-steel-300)",
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          fontWeight: 600,
+          display: "block",
+        }}
+      >
+        {label}
+      </label>
+      {children}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Button } from "./ui/Button";
 
 export function EmptyState({
   icon,
@@ -15,20 +16,53 @@ export function EmptyState({
   onAction?: () => void;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-      <div className="mb-3 opacity-50 text-[var(--fg2)] flex items-center justify-center">
-        {typeof icon === "string" ? <span className="text-3xl">{icon}</span> : icon}
+    <div
+      className="flex flex-col items-center justify-center text-center"
+      style={{ padding: "48px 16px" }}
+    >
+      <div
+        aria-hidden="true"
+        style={{
+          marginBottom: 12,
+          color: "var(--c-steel-300)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {typeof icon === "string" ? (
+          <span style={{ fontSize: 28 }}>{icon}</span>
+        ) : (
+          icon
+        )}
       </div>
-      <h3 className="text-sm font-semibold text-[var(--color-base-content)] mb-1">
+      <h3
+        style={{
+          fontFamily: "var(--font-display)",
+          fontSize: "var(--text-heading-lg)",
+          fontWeight: 700,
+          letterSpacing: "-0.005em",
+          color: "var(--c-bone)",
+          marginBottom: 6,
+        }}
+      >
         {title}
       </h3>
-      <p className="text-xs text-[var(--fg2)] mb-4 max-w-[280px]">
+      <p
+        style={{
+          fontSize: "var(--text-body-sm)",
+          color: "var(--c-fog-300)",
+          marginBottom: 16,
+          maxWidth: 320,
+          lineHeight: 1.5,
+        }}
+      >
         {description}
       </p>
       {actionLabel && onAction && (
-        <button className="btn-primary" onClick={onAction}>
+        <Button variant="primary" onClick={onAction}>
           {actionLabel}
-        </button>
+        </Button>
       )}
     </div>
   );

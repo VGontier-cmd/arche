@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Clock } from "lucide-react";
 import type { RunSchedule } from "../types";
 import {
   fetchSchedules,
@@ -8,8 +9,13 @@ import {
   fireScheduleApi,
 } from "../api/client";
 import { useToast } from "../context/ToastContext";
-import { useFocusTrap } from "../hooks/useFocusTrap";
 import { formatRelativeTime } from "../lib/format";
+import { Card } from "./ui/Card";
+import { Button } from "./ui/Button";
+import { Badge } from "./ui/Badge";
+import { Input, Checkbox } from "./ui/Input";
+import { Modal, ModalTitle, ModalActions } from "./Modal";
+import { ConfirmModal } from "./ConfirmModal";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -69,17 +75,29 @@ export function SchedulesView() {
     setLoading(true);
     fetchSchedules()
       .then(setSchedules)
-      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)))
+      .catch((e: unknown) =>
+        toast.error(e instanceof Error ? e.message : String(e)),
+      )
       .finally(() => setLoading(false));
   }, [toast]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const setField = <K extends keyof FormData>(key: K, value: FormData[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
-  const handleCreate = () => { setForm(emptyForm); setModalMode("create"); setEditingId(null); };
-  const handleEdit = (s: RunSchedule) => { setForm(scheduleToForm(s)); setModalMode("edit"); setEditingId(s.id); };
+  const handleCreate = () => {
+    setForm(emptyForm);
+    setModalMode("create");
+    setEditingId(null);
+  };
+  const handleEdit = (s: RunSchedule) => {
+    setForm(scheduleToForm(s));
+    setModalMode("edit");
+    setEditingId(s.id);
+  };
 
   const handleSubmit = async () => {
     const trimmedLabel = form.label.trim();
@@ -108,7 +126,8 @@ export function SchedulesView() {
       recurrence: form.recurrence,
       hour,
       minute,
-      dayOfWeek: form.recurrence === "weekly" ? Number(form.dayOfWeek) : undefined,
+      dayOfWeek:
+        form.recurrence === "weekly" ? Number(form.dayOfWeek) : undefined,
       enabled: form.enabled,
     };
     try {
@@ -158,83 +177,164 @@ export function SchedulesView() {
   };
 
   return (
-    <div className="p-5 max-w-3xl">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-semibold">Scheduled Runs</h2>
-        <button className="btn-primary" style={{ fontSize: "12px", padding: "5px 12px" }} onClick={handleCreate}>
+    <div style={{ padding: 28, maxWidth: 960, margin: "0 auto" }}>
+      <div
+        className="flex items-center justify-between"
+        style={{ marginBottom: 16 }}
+      >
+        <h2
+          style={{
+            fontFamily: "var(--font-display)",
+            fontSize: "var(--text-display-md)",
+            fontWeight: 700,
+            letterSpacing: "-0.015em",
+            color: "var(--c-bone)",
+          }}
+        >
+          Scheduled Runs
+        </h2>
+        <Button variant="primary" onClick={handleCreate}>
           Add Schedule
-        </button>
+        </Button>
       </div>
 
       {loading && (
-        <div className="flex flex-col gap-2">
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {[1, 2].map((i) => (
-            <div key={i} className="h-12 rounded bg-[var(--color-base-300)] animate-pulse" />
+            <div
+              key={i}
+              className="animate-pulse"
+              style={{
+                height: 56,
+                background: "var(--surface-2)",
+                borderRadius: "var(--radius-md)",
+              }}
+            />
           ))}
         </div>
       )}
 
       {!loading && schedules.length === 0 && (
-        <p className="text-[var(--fg3)] text-xs text-center py-8">No schedules yet. Create one to auto-trigger runs.</p>
+        <Card tone="default" padding={6}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              padding: "16px",
+              textAlign: "center",
+            }}
+          >
+            <Clock
+              size={32}
+              strokeWidth={1.5}
+              aria-hidden="true"
+              style={{ color: "var(--c-steel-300)", marginBottom: 12 }}
+            />
+            <p
+              style={{
+                fontSize: "var(--text-body-sm)",
+                color: "var(--c-fog-300)",
+              }}
+            >
+              No schedules yet. Create one to auto-trigger runs.
+            </p>
+          </div>
+        </Card>
       )}
 
       {!loading && schedules.length > 0 && (
-        <div className="flex flex-col gap-2">
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {schedules.map((s) => (
-            <div
-              key={s.id}
-              className="flex items-center gap-3 px-4 py-3 bg-[var(--color-base-200)] border border-[var(--border-color)] rounded-[var(--rounded-box)]"
-            >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-xs font-semibold text-[var(--color-base-content)]">{s.label}</span>
-                  <span className="text-[11px] text-[#58a6ff] font-mono">{s.ticketKey}</span>
-                  {!s.enabled && (
-                    <span className="text-[10px] text-[var(--fg3)] border border-[var(--border-color)] px-1 rounded">disabled</span>
-                  )}
+            <Card key={s.id} tone="default" padding={3}>
+              <div className="flex items-center" style={{ gap: 12 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    className="flex items-center"
+                    style={{ gap: 8, marginBottom: 4, flexWrap: "wrap" }}
+                  >
+                    <span
+                      style={{
+                        fontSize: "var(--text-body-sm)",
+                        fontWeight: 700,
+                        color: "var(--c-bone)",
+                      }}
+                    >
+                      {s.label}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: "var(--text-label-md)",
+                        color: "var(--c-blue-200)",
+                        fontFamily: "var(--font-mono)",
+                      }}
+                    >
+                      {s.ticketKey}
+                    </span>
+                    {!s.enabled && (
+                      <Badge tone="neutral" size="sm">
+                        disabled
+                      </Badge>
+                    )}
+                  </div>
+                  <div
+                    className="flex items-center flex-wrap"
+                    style={{
+                      gap: 12,
+                      fontSize: "var(--text-label-md)",
+                      color: "var(--c-fog-300)",
+                    }}
+                  >
+                    <span>{formatRecurrence(s)}</span>
+                    {s.nextRunAt && (
+                      <span style={{ color: "var(--c-steel-300)" }}>
+                        next: {formatRelativeTime(s.nextRunAt)}
+                      </span>
+                    )}
+                    {s.lastRunAt && (
+                      <span style={{ color: "var(--c-steel-300)" }}>
+                        last: {formatRelativeTime(s.lastRunAt)}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 text-[11px] text-[var(--fg2)]">
-                  <span>{formatRecurrence(s)}</span>
-                  {s.nextRunAt && (
-                    <span className="text-[var(--fg3)]">next: {formatRelativeTime(s.nextRunAt)}</span>
-                  )}
-                  {s.lastRunAt && (
-                    <span className="text-[var(--fg3)]">last: {formatRelativeTime(s.lastRunAt)}</span>
-                  )}
+                <div className="flex items-center shrink-0" style={{ gap: 4 }}>
+                  <Button
+                    size="xs"
+                    variant="secondary"
+                    onClick={() => handleFire(s.id)}
+                    title="Fire this schedule now"
+                    aria-label={`Fire schedule ${s.label} now`}
+                  >
+                    Fire now
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant={s.enabled ? "secondary" : "primary"}
+                    onClick={() => handleToggle(s)}
+                    aria-label={`${s.enabled ? "Disable" : "Enable"} schedule ${s.label}`}
+                  >
+                    {s.enabled ? "Disable" : "Enable"}
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="secondary"
+                    onClick={() => handleEdit(s)}
+                    aria-label={`Edit schedule ${s.label}`}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="danger"
+                    onClick={() => setDeleteId(s.id)}
+                    aria-label={`Delete schedule ${s.label}`}
+                  >
+                    Delete
+                  </Button>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  className="btn-default"
-                  style={{ fontSize: "11px", padding: "3px 8px" }}
-                  onClick={() => handleFire(s.id)}
-                  title="Fire now"
-                >
-                  Fire now
-                </button>
-                <button
-                  className={s.enabled ? "btn-default" : "btn-primary"}
-                  style={{ fontSize: "11px", padding: "3px 8px" }}
-                  onClick={() => handleToggle(s)}
-                >
-                  {s.enabled ? "Disable" : "Enable"}
-                </button>
-                <button
-                  className="btn-default"
-                  style={{ fontSize: "11px", padding: "3px 8px" }}
-                  onClick={() => handleEdit(s)}
-                >
-                  Edit
-                </button>
-                <button
-                  className="btn-danger"
-                  style={{ fontSize: "11px", padding: "3px 8px" }}
-                  onClick={() => setDeleteId(s.id)}
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
+            </Card>
           ))}
         </div>
       )}
@@ -249,12 +349,14 @@ export function SchedulesView() {
         />
       )}
 
-      {deleteId && (
-        <DeleteConfirmModal
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteId(null)}
-        />
-      )}
+      <ConfirmModal
+        isOpen={deleteId !== null}
+        title="Delete schedule?"
+        body="This cannot be undone. The schedule will stop firing."
+        confirmLabel="Delete"
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteId(null)}
+      />
     </div>
   );
 }
@@ -272,134 +374,141 @@ function ScheduleFormModal({
   onSubmit: () => void;
   onClose: () => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useFocusTrap(ref, true);
-
   return (
-    <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center" onClick={onClose}>
-      <div
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        className="bg-[var(--color-base-200)] border border-[var(--border-color)] rounded-[var(--rounded-box)] p-5 w-[90vw] max-w-[420px]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="font-semibold text-sm mb-4">{mode === "create" ? "New Schedule" : "Edit Schedule"}</h3>
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-[var(--fg2)] font-semibold uppercase tracking-wide">Label</label>
-            <input
-              className="bg-[var(--color-base-100)] border border-[var(--border-color)] rounded-[var(--rounded-box)] px-2.5 py-1.5 text-xs font-[inherit] outline-none focus:border-[#58a6ff]"
-              value={form.label}
-              onChange={(e) => setField("label", e.target.value)}
-              placeholder="Weekly maintenance"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-[var(--fg2)] font-semibold uppercase tracking-wide">Ticket Key</label>
-            <input
-              className="bg-[var(--color-base-100)] border border-[var(--border-color)] rounded-[var(--rounded-box)] px-2.5 py-1.5 text-xs font-[inherit] outline-none focus:border-[#58a6ff] font-mono"
-              value={form.ticketKey}
-              onChange={(e) => setField("ticketKey", e.target.value.toUpperCase())}
-              placeholder="PROJ-123"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-[var(--fg2)] font-semibold uppercase tracking-wide">Recurrence</label>
-            <select
-              className="bg-[var(--color-base-100)] border border-[var(--border-color)] rounded-[var(--rounded-box)] px-2.5 py-1.5 text-xs font-[inherit] outline-none focus:border-[#58a6ff]"
-              value={form.recurrence}
-              onChange={(e) => setField("recurrence", e.target.value as FormData["recurrence"])}
-            >
-              <option value="once">Once</option>
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-            </select>
-          </div>
-          {form.recurrence === "weekly" && (
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] text-[var(--fg2)] font-semibold uppercase tracking-wide">Day of Week</label>
-              <select
-                className="bg-[var(--color-base-100)] border border-[var(--border-color)] rounded-[var(--rounded-box)] px-2.5 py-1.5 text-xs font-[inherit] outline-none focus:border-[#58a6ff]"
-                value={form.dayOfWeek}
-                onChange={(e) => setField("dayOfWeek", e.target.value)}
-              >
-                {DAY_NAMES.map((d, i) => (
-                  <option key={i} value={String(i)}>{d}</option>
-                ))}
-              </select>
-            </div>
-          )}
-          <div className="flex gap-3">
-            <div className="flex flex-col gap-1 flex-1">
-              <label className="text-[11px] text-[var(--fg2)] font-semibold uppercase tracking-wide">Hour (0–23)</label>
-              <input
-                type="number"
-                min={0}
-                max={23}
-                className="bg-[var(--color-base-100)] border border-[var(--border-color)] rounded-[var(--rounded-box)] px-2.5 py-1.5 text-xs font-[inherit] outline-none focus:border-[#58a6ff]"
-                value={form.hour}
-                onChange={(e) => setField("hour", e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1 flex-1">
-              <label className="text-[11px] text-[var(--fg2)] font-semibold uppercase tracking-wide">Minute (0–59)</label>
-              <input
-                type="number"
-                min={0}
-                max={59}
-                className="bg-[var(--color-base-100)] border border-[var(--border-color)] rounded-[var(--rounded-box)] px-2.5 py-1.5 text-xs font-[inherit] outline-none focus:border-[#58a6ff]"
-                value={form.minute}
-                onChange={(e) => setField("minute", e.target.value)}
-              />
-            </div>
-          </div>
-          <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={form.enabled}
-              onChange={(e) => setField("enabled", e.target.checked)}
-              className="accent-[#58a6ff]"
-            />
-            <span>Enabled</span>
-          </label>
-        </div>
-        <div className="flex gap-2 mt-5 justify-end">
-          <button className="btn-default" style={{ fontSize: "12px" }} onClick={onClose}>Cancel</button>
-          <button
-            className="btn-primary"
-            style={{ fontSize: "12px" }}
-            disabled={!form.label || !form.ticketKey}
-            onClick={onSubmit}
+    <Modal isOpen onClose={onClose} labelledBy="schedule-form-title">
+      <ModalTitle id="schedule-form-title">
+        {mode === "create" ? "New Schedule" : "Edit Schedule"}
+      </ModalTitle>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <Input
+          name="label"
+          label="Label"
+          value={form.label}
+          onChange={(e) => setField("label", e.target.value)}
+          placeholder="Weekly maintenance"
+          autoComplete="off"
+        />
+        <Input
+          name="ticketKey"
+          label="Ticket Key"
+          value={form.ticketKey}
+          onChange={(e) => setField("ticketKey", e.target.value.toUpperCase())}
+          placeholder="PROJ-123"
+          autoComplete="off"
+          spellCheck={false}
+          autoCapitalize="characters"
+          style={{ fontFamily: "var(--font-mono)" }}
+        />
+        <FieldGroup label="Recurrence">
+          <select
+            name="recurrence"
+            value={form.recurrence}
+            onChange={(e) =>
+              setField("recurrence", e.target.value as FormData["recurrence"])
+            }
+            style={selectStyle}
           >
-            {mode === "create" ? "Create" : "Save"}
-          </button>
+            <option value="once">Once</option>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+          </select>
+        </FieldGroup>
+        {form.recurrence === "weekly" && (
+          <FieldGroup label="Day of Week">
+            <select
+              name="dayOfWeek"
+              value={form.dayOfWeek}
+              onChange={(e) => setField("dayOfWeek", e.target.value)}
+              style={selectStyle}
+            >
+              {DAY_NAMES.map((d, i) => (
+                <option key={i} value={String(i)}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </FieldGroup>
+        )}
+        <div className="flex" style={{ gap: 12 }}>
+          <Input
+            name="hour"
+            label="Hour (0–23)"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            max={23}
+            value={form.hour}
+            onChange={(e) => setField("hour", e.target.value)}
+          />
+          <Input
+            name="minute"
+            label="Minute (0–59)"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            max={59}
+            value={form.minute}
+            onChange={(e) => setField("minute", e.target.value)}
+          />
         </div>
+        <Checkbox
+          name="enabled"
+          label="Enabled"
+          checked={form.enabled}
+          onChange={(e) => setField("enabled", e.target.checked)}
+        />
       </div>
-    </div>
+      <ModalActions align="right">
+        <Button variant="secondary" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          disabled={!form.label || !form.ticketKey}
+          onClick={onSubmit}
+        >
+          {mode === "create" ? "Create" : "Save"}
+        </Button>
+      </ModalActions>
+    </Modal>
   );
 }
 
-function DeleteConfirmModal({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useFocusTrap(ref, true);
+const selectStyle: React.CSSProperties = {
+  width: "100%",
+  background: "var(--surface-0)",
+  border: "1px solid var(--hairline)",
+  borderRadius: "var(--radius-sm)",
+  color: "var(--c-fog-100)",
+  padding: "6px 10px",
+  fontSize: "var(--text-body-sm)",
+  fontFamily: "inherit",
+  outline: "none",
+};
 
+function FieldGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center" onClick={onCancel}>
-      <div
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        className="bg-[var(--color-base-200)] border border-[var(--border-color)] rounded-[var(--rounded-box)] p-5 w-[90vw] max-w-[360px]"
-        onClick={(e) => e.stopPropagation()}
+    <div>
+      <label
+        style={{
+          display: "block",
+          fontSize: "var(--text-label-md)",
+          fontWeight: 600,
+          color: "var(--c-fog-300)",
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+          marginBottom: 6,
+        }}
       >
-        <h3 className="font-semibold text-sm mb-2">Delete schedule?</h3>
-        <p className="text-xs text-[var(--fg2)] mb-5">This cannot be undone. The schedule will stop firing.</p>
-        <div className="flex gap-2 justify-end">
-          <button className="btn-default" style={{ fontSize: "12px" }} onClick={onCancel}>Cancel</button>
-          <button className="btn-danger" style={{ fontSize: "12px" }} onClick={onConfirm}>Delete</button>
-        </div>
-      </div>
+        {label}
+      </label>
+      {children}
     </div>
   );
 }

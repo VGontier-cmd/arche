@@ -1,26 +1,74 @@
-function Pulse({ className = "" }: { className?: string }) {
-  return <div className={`animate-pulse bg-[var(--color-base-300)] rounded ${className}`} />;
+function Pulse({
+  width,
+  height = 12,
+  style,
+}: {
+  width: string | number;
+  height?: number;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <div
+      className="animate-pulse"
+      aria-hidden="true"
+      style={{
+        background: "var(--surface-2)",
+        borderRadius: "var(--radius-xs)",
+        width,
+        height,
+        ...style,
+      }}
+    />
+  );
 }
 
 export function SkeletonLoader() {
   return (
-    <div className="min-h-screen bg-[var(--color-base-100)]">
+    <div
+      role="status"
+      aria-label="Loading dashboard"
+      style={{
+        minHeight: "100vh",
+        background: "var(--surface-0)",
+      }}
+    >
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3 bg-[var(--color-base-200)] border-b border-[var(--border-color)]">
-        <Pulse className="h-8 w-40" />
-        <div className="flex gap-4">
-          <Pulse className="h-4 w-20" />
-          <Pulse className="h-4 w-20" />
-          <Pulse className="h-4 w-28" />
+      <div
+        className="flex items-center justify-between"
+        style={{
+          padding: "12px 20px",
+          background: "var(--surface-1)",
+          borderBottom: "1px solid var(--c-blue-900)",
+        }}
+      >
+        <Pulse width={160} height={28} />
+        <div className="flex" style={{ gap: 16 }}>
+          <Pulse width={80} height={14} />
+          <Pulse width={80} height={14} />
+          <Pulse width={110} height={14} />
         </div>
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-5 py-3">
+      <div
+        className="grid grid-cols-2 sm:grid-cols-4"
+        style={{ gap: 12, padding: "16px 20px" }}
+      >
         {Array.from({ length: 4 }, (_, i) => (
-          <div key={i} className="border border-[var(--border-color)] rounded-[var(--rounded-box)] p-3">
-            <Pulse className="h-3 w-16 mb-2" />
-            <Pulse className="h-6 w-10" />
+          <div
+            key={i}
+            style={{
+              border: "1px solid var(--hairline)",
+              borderRadius: "var(--radius-md)",
+              padding: 14,
+              background: "var(--surface-1)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}
+          >
+            <Pulse width="60%" height={12} />
+            <Pulse width="40%" height={24} />
           </div>
         ))}
       </div>
@@ -28,14 +76,31 @@ export function SkeletonLoader() {
       {/* Sidebar + Detail */}
       <div className="flex flex-col lg:flex-row">
         {/* Sidebar */}
-        <div className="w-full lg:w-[380px] border-r border-[var(--border-color)] p-4 space-y-4">
+        <div
+          style={{
+            width: "100%",
+            maxWidth: 380,
+            borderRight: "1px solid var(--hairline)",
+            padding: 16,
+            display: "flex",
+            flexDirection: "column",
+            gap: 16,
+          }}
+        >
           {Array.from({ length: 3 }, (_, s) => (
-            <div key={s} className="space-y-2">
-              <Pulse className="h-3 w-20" />
+            <div
+              key={s}
+              style={{ display: "flex", flexDirection: "column", gap: 8 }}
+            >
+              <Pulse width={80} height={11} />
               {Array.from({ length: 2 }, (_, r) => (
-                <div key={r} className="flex items-center gap-2 p-2">
-                  <Pulse className="h-4 w-16" />
-                  <Pulse className="h-4 flex-1" />
+                <div
+                  key={r}
+                  className="flex items-center"
+                  style={{ gap: 8, padding: 8 }}
+                >
+                  <Pulse width={60} height={14} />
+                  <Pulse width="100%" height={14} style={{ flex: 1 }} />
                 </div>
               ))}
             </div>
@@ -43,17 +108,25 @@ export function SkeletonLoader() {
         </div>
 
         {/* Detail pane */}
-        <div className="flex-1 p-5 space-y-4">
-          <Pulse className="h-5 w-48" />
-          <div className="space-y-2">
+        <div
+          style={{
+            flex: 1,
+            padding: 20,
+            display: "flex",
+            flexDirection: "column",
+            gap: 16,
+          }}
+        >
+          <Pulse width={200} height={20} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {Array.from({ length: 6 }, (_, i) => (
-              <div key={i} className="flex gap-3">
-                <Pulse className="h-3 w-24" />
-                <Pulse className="h-3 w-40" />
+              <div key={i} className="flex" style={{ gap: 12 }}>
+                <Pulse width={100} height={12} />
+                <Pulse width={160} height={12} />
               </div>
             ))}
           </div>
-          <Pulse className="h-32 w-full" />
+          <Pulse width="100%" height={128} />
         </div>
       </div>
     </div>

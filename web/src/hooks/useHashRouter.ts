@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AppView } from "../types";
 
-const VALID_VIEWS = new Set<AppView>(["runs", "repositories", "rules", "settings"]);
+const VALID_VIEWS = new Set<AppView>([
+  "runs",
+  "repositories",
+  "rules",
+  "settings",
+  "schedules",
+  "metrics",
+]);
 
 function parseHash(): { view: AppView; runId: string | null } {
   const hash = window.location.hash.replace(/^#\/?/, "");

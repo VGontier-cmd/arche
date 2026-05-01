@@ -1,12 +1,18 @@
 import type { ConnectionInfo } from "../hooks/useDashboard";
 import type { DashboardServiceStatus, DashboardSystemStats, DashboardWorker } from "../types";
 import { formatTime } from "../lib/format";
+import { Button } from "./ui/Button";
+import { Badge } from "./ui/Badge";
+import { Power, RotateCcw, Trash2 } from "lucide-react";
 
-const LOGO = ` ______     ______     ______     __  __     ______
-/\\  __ \\   /\\  == \\   /\\  ___\\   /\\ \\_\\ \\   /\\  ___\\
-\\ \\  __ \\  \\ \\  __<   \\ \\ \\____  \\ \\  __ \\  \\ \\  __\\
- \\ \\_\\ \\_\\  \\ \\_\\ \\_\\  \\ \\_____\\  \\ \\_\\ \\_\\  \\ \\_____\\
-  \\/_/\\/_/   \\/_/ /_/   \\/_____/   \\/_/\\/_/   \\/_____/`;
+// Slant figlet — leaning ASCII banner that nods to engineering blueprints
+// while keeping the CLI-first identity. The monogram in NavSidebar stays
+// the compact mark for tighter contexts.
+const LOGO = `    ___    ____  ________  ________
+   /   |  / __ \\/ ____/ / / / ____/
+  / /| | / /_/ / /   / /_/ / __/
+ / ___ |/ _, _/ /___/ __  / /___
+/_/  |_/_/ |_|\\____/_/ /_/_____/`;
 
 export function Header({
   workers,
@@ -28,75 +34,156 @@ export function Header({
   onPurgeOffline?: () => void;
 }) {
   return (
-    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between px-5 py-3 gap-2 bg-[var(--color-base-200)] border-b border-[var(--border-color)]">
-      <pre className="hidden md:block text-[7px] leading-[1.1] text-[#58a6ff] select-none m-0">
+    <div
+      className="flex flex-col sm:flex-row items-start sm:items-center justify-between px-5 py-3 gap-3"
+      style={{
+        background: "var(--surface-1)",
+        borderBottom: "1px solid var(--c-blue-900)",
+      }}
+    >
+      {/* ASCII banner on md+; compact wordmark on small screens. */}
+      <pre
+        translate="no"
+        aria-label="Arche"
+        className="hidden md:block select-none"
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 7,
+          lineHeight: 1.1,
+          color: "var(--c-bone)",
+          margin: 0,
+          letterSpacing: 0,
+        }}
+      >
         {LOGO}
       </pre>
-      <span className="md:hidden text-base font-semibold text-[var(--color-base-content)]">
-        Arche
+      <span
+        translate="no"
+        aria-hidden="true"
+        className="md:hidden"
+        style={{
+          fontFamily: "var(--font-display)",
+          fontSize: 18,
+          fontWeight: 700,
+          letterSpacing: "-0.02em",
+          color: "var(--c-bone)",
+        }}
+      >
+        ARCHE
       </span>
-      <div className="flex items-center gap-6 text-[11px] text-[var(--fg2)] flex-wrap">
+
+      <div
+        className="flex items-center flex-wrap"
+        style={{
+          gap: 18,
+          fontSize: 11,
+          color: "var(--c-fog-300)",
+        }}
+      >
         {/* Service statuses */}
         <StatusDot active={services.serverRunning} label="Server" />
         <StatusDot active={services.dockerRunning} label="Docker" />
         <ConnectionIndicator info={connectionInfo} />
 
         {/* Workers */}
-        <span className="flex items-center gap-3 flex-wrap">
+        <span className="flex items-center gap-2 flex-wrap">
           {workers.length > 0 ? (
             workers.map((w) => (
-              <span key={w.id} className="group relative flex items-center gap-1.5">
+              <span
+                key={w.id}
+                className="reveal-host relative flex items-center"
+                style={{ gap: 6 }}
+              >
                 <span
-                  className={`inline-block w-2 h-2 rounded-full ${w.offline ? "bg-[#f85149]" : "bg-[#3fb950]"}`}
+                  aria-hidden="true"
+                  style={{
+                    display: "inline-block",
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    background: w.offline
+                      ? "var(--c-error-fg)"
+                      : "var(--c-success-fg)",
+                    boxShadow: w.offline
+                      ? undefined
+                      : "0 0 8px rgba(95, 209, 122, 0.5)",
+                  }}
                 />
-                {w.name}
-                <span className="hidden group-hover:inline-flex items-center gap-1 ml-1">
+                <span style={{ color: "var(--c-fog-100)" }}>{w.name}</span>
+                <span
+                  className="reveal-target inline-flex items-center"
+                  style={{ gap: 4, marginLeft: 2 }}
+                >
                   {onRestartWorker && (
-                    <button
-                      className="px-1.5 py-0.5 text-[9px] rounded bg-[#58a6ff20] text-[#58a6ff] hover:bg-[#58a6ff30] transition-colors"
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      leftIcon={<RotateCcw size={10} strokeWidth={2.5} />}
                       onClick={() => onRestartWorker(w.id)}
                       title="Restart worker"
+                      aria-label={`Restart worker ${w.name}`}
                     >
                       Restart
-                    </button>
+                    </Button>
                   )}
                   {onStopWorker && !w.offline && (
-                    <button
-                      className="px-1.5 py-0.5 text-[9px] rounded bg-[#f8514920] text-[#f85149] hover:bg-[#f8514930] transition-colors"
+                    <Button
+                      size="xs"
+                      variant="danger"
+                      leftIcon={<Power size={10} strokeWidth={2.5} />}
                       onClick={() => onStopWorker(w.id)}
                       title="Stop worker"
+                      aria-label={`Stop worker ${w.name}`}
                     >
                       Stop
-                    </button>
+                    </Button>
                   )}
                 </span>
               </span>
             ))
           ) : (
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block w-2 h-2 rounded-full bg-[#f85149]" />
+            <span className="flex items-center" style={{ gap: 6 }}>
+              <span
+                aria-hidden="true"
+                style={{
+                  display: "inline-block",
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: "var(--c-error-fg)",
+                }}
+              />
               No workers
             </span>
           )}
           {onPurgeOffline && workers.some((w) => w.offline) && (
-            <button
-              className="px-1.5 py-0.5 text-[9px] rounded bg-[#d2992220] text-[#d29922] hover:bg-[#d2992230] transition-colors"
+            <Button
+              size="xs"
+              variant="accent"
+              leftIcon={<Trash2 size={10} strokeWidth={2.5} />}
               onClick={onPurgeOffline}
               title="Remove offline workers"
+              aria-label="Remove offline workers"
             >
               Purge offline
-            </button>
+            </Button>
           )}
         </span>
 
-        {/* System stats — collapsed under timestamp hover */}
+        {/* System stats — always visible. Timestamp + RAM + CPU on the
+            same line. Keyboard-accessible via the surrounding span. */}
         <span
-          className="group relative cursor-default"
+          className="tabular"
           title={`RAM ${systemStats.ramMb}M / ${systemStats.ramTotalMb}M · CPU ${systemStats.loadAvg1.toFixed(2)} / ${systemStats.cpuCount}`}
+          style={{ color: "var(--c-fog-300)" }}
+          aria-label={`Last refresh ${formatTime(refreshedAt)}, RAM ${systemStats.ramMb} of ${systemStats.ramTotalMb} megabytes, CPU load ${systemStats.loadAvg1.toFixed(2)} of ${systemStats.cpuCount}`}
         >
           {formatTime(refreshedAt)}
-          <span className="hidden group-hover:inline ml-1.5 text-[var(--fg3)] text-[10px]">
-            · {systemStats.ramMb}M RAM · {systemStats.loadAvg1.toFixed(1)} CPU
+          <span style={{ marginLeft: 8, color: "var(--c-steel-300)" }}>
+            · {systemStats.ramMb}M / {systemStats.ramTotalMb}M RAM
+          </span>
+          <span style={{ marginLeft: 8, color: "var(--c-steel-300)" }}>
+            · {systemStats.loadAvg1.toFixed(2)} / {systemStats.cpuCount} CPU
           </span>
         </span>
       </div>
@@ -106,9 +193,17 @@ export function Header({
 
 function StatusDot({ active, label }: { active: boolean; label: string }) {
   return (
-    <span className="flex items-center gap-1.5">
+    <span className="flex items-center" style={{ gap: 6 }}>
       <span
-        className={`inline-block w-2 h-2 rounded-full ${active ? "bg-[#3fb950]" : "bg-[#f85149]"}`}
+        aria-hidden="true"
+        style={{
+          display: "inline-block",
+          width: 8,
+          height: 8,
+          borderRadius: "50%",
+          background: active ? "var(--c-success-fg)" : "var(--c-error-fg)",
+          boxShadow: active ? "0 0 8px rgba(95, 209, 122, 0.5)" : undefined,
+        }}
       />
       {label}
     </span>
@@ -120,33 +215,25 @@ const MAX_RECONNECT_DISPLAY = 10;
 function ConnectionIndicator({ info }: { info: ConnectionInfo }) {
   if (info.state === "connected") {
     return (
-      <span className="flex items-center gap-1.5" title="Live updates connected">
-        <span className="inline-block w-2 h-2 rounded-full bg-[#3fb950]" />
+      <Badge tone="success" pulse title="Live updates connected">
         Live
-      </span>
+      </Badge>
     );
   }
   if (info.state === "connecting") {
-    return (
-      <span className="flex items-center gap-1.5">
-        <span className="inline-block w-2 h-2 rounded-full bg-[#d29922]" />
-        Connecting
-      </span>
-    );
+    return <Badge tone="warning">Connecting</Badge>;
   }
   // Disconnected
   if (info.reconnectAttempt > MAX_RECONNECT_DISPLAY) {
     return (
-      <span className="flex items-center gap-1.5 text-[#f85149]" title={`${info.reconnectAttempt} reconnect attempts`}>
-        <span className="inline-block w-2 h-2 rounded-full bg-[#f85149]" />
+      <Badge tone="danger" title={`${info.reconnectAttempt} reconnect attempts`}>
         Offline — refresh to retry
-      </span>
+      </Badge>
     );
   }
   return (
-    <span className="flex items-center gap-1.5">
-      <span className="inline-block w-2 h-2 rounded-full bg-[#f85149] animate-pulse" />
+    <Badge tone="danger" pulse>
       Reconnecting{info.reconnectAttempt > 0 ? ` (${info.reconnectAttempt}/${MAX_RECONNECT_DISPLAY})` : ""}
-    </span>
+    </Badge>
   );
 }

@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Modal } from "./Modal";
+import { Modal, ModalTitle, ModalActions } from "./Modal";
+import { Button } from "./ui/Button";
+import { Textarea } from "./ui/Input";
+import { Kbd } from "./ui/Kbd";
 
 export function RespondModal({
   isOpen,
@@ -37,23 +40,37 @@ export function RespondModal({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} labelledBy="respond-modal-title">
-      <h3 id="respond-modal-title" className="mb-3 font-semibold">{title}</h3>
-      <textarea
+      <ModalTitle id="respond-modal-title">{title}</ModalTitle>
+      <Textarea
         ref={textareaRef}
-        className="w-full min-h-[80px] bg-[var(--color-base-100)] border border-[var(--border-color)] rounded-[var(--rounded-box)] text-[var(--color-base-content)] p-2 font-[inherit] text-xs resize-y"
-        placeholder="Type your feedback… (⌘↵ to send)"
+        name="respond-message"
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={handleKeyDown}
+        placeholder="Type your feedback…"
+        rows={4}
+        spellCheck={false}
       />
-      <div className="flex gap-2 mt-3">
-        <button className="btn-primary" onClick={handleSubmit} disabled={!text.trim()}>
+      <p
+        style={{
+          fontSize: 10,
+          color: "var(--c-fog-300)",
+          marginTop: 6,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+        }}
+      >
+        Send with <Kbd>⌘</Kbd> <Kbd>↵</Kbd>
+      </p>
+      <ModalActions>
+        <Button variant="primary" onClick={handleSubmit} disabled={!text.trim()}>
           Send
-        </button>
-        <button className="btn-default" onClick={onClose}>
+        </Button>
+        <Button variant="secondary" onClick={onClose}>
           Cancel
-        </button>
-      </div>
+        </Button>
+      </ModalActions>
     </Modal>
   );
 }

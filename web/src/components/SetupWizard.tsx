@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { Check, X } from "lucide-react";
 import type { DashboardSnapshot, Repository } from "../types";
 import {
   createRepository,
@@ -8,24 +9,58 @@ import {
   triggerManualRun,
 } from "../api/client";
 import { useToast } from "../context/ToastContext";
+import { Card } from "./ui/Card";
+import { Button } from "./ui/Button";
+import { Input } from "./ui/Input";
 
 type Step = "credentials" | "repository" | "rule" | "run";
 
+// Slant figlet — same banner as the Header. Used here as the welcome hero.
+const ARCHE_ASCII = `    ___    ____  ________  ________
+   /   |  / __ \\/ ____/ / / / ____/
+  / /| | / /_/ / /   / /_/ / __/
+ / ___ |/ _, _/ /___/ __  / /___
+/_/  |_/_/ |_|\\____/_/ /_/_____/`;
+
 const STEPS: Array<{ key: Step; label: string; number: string }> = [
   { key: "credentials", label: "Check Setup", number: "1" },
-  { key: "repository", label: "Add Repository", number: "2" },
-  { key: "rule", label: "Add Rule", number: "3" },
-  { key: "run", label: "Test Run", number: "4" },
+  { key: "repository",  label: "Add Repository", number: "2" },
+  { key: "rule",        label: "Add Rule", number: "3" },
+  { key: "run",         label: "Test Run", number: "4" },
 ];
 
-const inputClass =
-  "w-full bg-[var(--color-base-100)] border border-[var(--border-color)] rounded-[var(--rounded-box)] text-[var(--color-base-content)] px-2.5 py-1.5 text-xs font-[inherit] outline-none focus:border-[#58a6ff]";
+const selectStyle: React.CSSProperties = {
+  width: "100%",
+  background: "var(--surface-0)",
+  border: "1px solid var(--hairline)",
+  borderRadius: "var(--radius-sm)",
+  color: "var(--c-fog-100)",
+  padding: "6px 10px",
+  fontSize: "var(--text-body-sm)",
+  fontFamily: "inherit",
+  outline: "none",
+};
 
 function CheckItem({ ok, label }: { ok: boolean; label: string }) {
+  const Icon = ok ? Check : X;
   return (
-    <div className="flex items-center gap-2 text-xs py-1">
-      <span className={ok ? "text-[#3fb950]" : "text-[#f85149]"}>{ok ? "\u2713" : "\u2717"}</span>
-      <span className={ok ? "text-[var(--color-base-content)]" : "text-[var(--fg2)]"}>{label}</span>
+    <div
+      className="flex items-center"
+      style={{
+        gap: 8,
+        fontSize: "var(--text-body-sm)",
+        padding: "4px 0",
+      }}
+    >
+      <Icon
+        size={12}
+        strokeWidth={2.5}
+        aria-hidden="true"
+        style={{ color: ok ? "var(--c-success-fg)" : "var(--c-error-fg)" }}
+      />
+      <span style={{ color: ok ? "var(--c-fog-100)" : "var(--c-fog-300)" }}>
+        {label}
+      </span>
     </div>
   );
 }
@@ -43,7 +78,6 @@ export function SetupWizard({
   const [currentStep, setCurrentStep] = useState<Step>("credentials");
   const [submitting, setSubmitting] = useState(false);
 
-  // Credentials form
   const [credForm, setCredForm] = useState({
     openRouterKey: "",
     githubToken: "",
@@ -63,9 +97,14 @@ export function SetupWizard({
       if (credForm.githubToken.trim()) payload.githubToken = credForm.githubToken.trim();
       if (credForm.gitlabToken.trim()) {
         payload.gitlabToken = credForm.gitlabToken.trim();
-        if (credForm.gitlabBaseUrl.trim()) payload.gitlabBaseUrl = credForm.gitlabBaseUrl.trim();
+        if (credForm.gitlabBaseUrl.trim())
+          payload.gitlabBaseUrl = credForm.gitlabBaseUrl.trim();
       }
-      if (credForm.jiraBaseUrl.trim() && credForm.jiraEmail.trim() && credForm.jiraApiToken.trim()) {
+      if (
+        credForm.jiraBaseUrl.trim() &&
+        credForm.jiraEmail.trim() &&
+        credForm.jiraApiToken.trim()
+      ) {
         payload.jiraBaseUrl = credForm.jiraBaseUrl.trim();
         payload.jiraEmail = credForm.jiraEmail.trim();
         payload.jiraApiToken = credForm.jiraApiToken.trim();
@@ -91,7 +130,6 @@ export function SetupWizard({
     }
   }, [credForm, toast, onRefresh]);
 
-  // Repository form
   const [repoForm, setRepoForm] = useState({
     name: "",
     remoteUrl: "",
@@ -101,7 +139,6 @@ export function SetupWizard({
     gitlabProjectId: "",
   });
 
-  // Rule form
   const [repos, setRepos] = useState<Repository[]>([]);
   const [ruleForm, setRuleForm] = useState({
     name: "",
@@ -110,7 +147,6 @@ export function SetupWizard({
     priority: "100",
   });
 
-  // Run form
   const [ticketKey, setTicketKey] = useState("");
 
   const handleRepoSubmit = useCallback(async () => {
@@ -178,49 +214,65 @@ export function SetupWizard({
   const stepIndex = STEPS.findIndex((s) => s.key === currentStep);
 
   return (
-    <div className="flex-1 flex items-center justify-center px-8 pt-20 pb-8">
-      <div className="w-full max-w-lg">
-        <h2 className="text-lg font-semibold text-[var(--color-base-content)] mb-1 text-center">
-          Welcome to Arche
-        </h2>
-        <p className="text-xs text-[var(--fg2)] mb-6 text-center">
-          Let's set up your first automated run in a few steps.
+    <div
+      className="flex-1 flex items-center justify-center"
+      style={{ padding: "80px 32px 32px" }}
+    >
+      <div style={{ width: "100%", maxWidth: 540 }}>
+        {/* Brand anchor — frame the wizard with the logo to make first
+            impression unambiguous: this is Arche, you are setting up. */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            marginBottom: 16,
+          }}
+        >
+          <pre
+            translate="no"
+            aria-label="Arche"
+            className="select-none"
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 12,
+              lineHeight: 1.1,
+              color: "var(--c-bone)",
+              margin: 0,
+              letterSpacing: 0,
+            }}
+          >
+            {ARCHE_ASCII}
+          </pre>
+        </div>
+        <p
+          style={{
+            fontSize: "var(--text-body-sm)",
+            color: "var(--c-fog-300)",
+            textAlign: "center",
+            marginBottom: 28,
+          }}
+        >
+          Welcome — let's set up your first automated run in a few steps.
         </p>
 
         {/* Stepper */}
-        <div className="flex items-center justify-center gap-1 mb-8">
-          {STEPS.map((step, i) => {
-            const isActive = i === stepIndex;
-            const isDone = i < stepIndex;
-            return (
-              <div key={step.key} className="flex items-center gap-1">
-                <div
-                  className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold ${
-                    isDone
-                      ? "bg-[#3fb950] text-white"
-                      : isActive
-                        ? "bg-[#58a6ff] text-white"
-                        : "bg-[var(--color-base-300)] text-[var(--fg3)]"
-                  }`}
-                >
-                  {isDone ? "\u2713" : step.number}
-                </div>
-                <span className={`text-[10px] ${isActive ? "text-[var(--color-base-content)]" : "text-[var(--fg3)]"}`}>
-                  {step.label}
-                </span>
-                {i < STEPS.length - 1 && (
-                  <div className={`w-6 h-px mx-1 ${isDone ? "bg-[#3fb950]" : "bg-[var(--border-color)]"}`} />
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <Stepper steps={STEPS} stepIndex={stepIndex} />
 
-        <div className="bg-[var(--color-base-200)] border border-[var(--border-color)] rounded-[var(--rounded-box)] p-5">
-          {/* Step 1: Credentials check */}
+        <Card tone="default" padding={5} style={{ marginTop: 24 }}>
+          {/* Step 1: Credentials */}
           {currentStep === "credentials" && (
             <div>
-              <h3 className="text-sm font-semibold mb-3">Environment Check</h3>
+              <h3
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontSize: "var(--text-heading-lg)",
+                  fontWeight: 700,
+                  color: "var(--c-bone)",
+                  marginBottom: 12,
+                }}
+              >
+                Environment Check
+              </h3>
               <CheckItem ok={snapshot.credentialEnv.openRouter} label="AI API Key (OpenRouter)" />
               <CheckItem ok={snapshot.services.dockerRunning} label="Docker daemon" />
               <CheckItem ok={snapshot.credentialEnv.gitlab} label="GitLab credentials (optional)" />
@@ -229,235 +281,571 @@ export function SetupWizard({
               <CheckItem ok={snapshot.summary.onlineWorkerCount > 0} label="Worker online" />
 
               {!snapshot.credentialEnv.openRouter && (
-                <p className="text-[11px] text-[#d29922] mt-3 leading-snug">
-                  OpenRouter key is required. Paste it below — it will be saved to <code>.arche/environment</code>.
+                <p
+                  style={{
+                    fontSize: 11,
+                    color: "var(--c-gold-300)",
+                    marginTop: 12,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  OpenRouter key is required. Paste it below — it will be saved
+                  to <code>.arche/environment</code>.
                 </p>
               )}
 
               <form
-                onSubmit={(e) => { e.preventDefault(); handleCredentialsSubmit(); }}
-                className="flex flex-col gap-2.5 mt-4 pt-3 border-t border-[var(--border-color)]"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleCredentialsSubmit();
+                }}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                  marginTop: 16,
+                  paddingTop: 14,
+                  borderTop: "1px solid var(--hairline)",
+                }}
               >
-                <div>
-                  <label className="block text-xs text-[var(--fg2)] mb-1">
-                    OpenRouter API key {snapshot.credentialEnv.openRouter && <span className="text-[#3fb950] text-[10px]">(already set — leave blank to keep)</span>}
-                  </label>
-                  <input
-                    className={inputClass}
-                    type="password"
-                    value={credForm.openRouterKey}
-                    onChange={(e) => setCredForm((f) => ({ ...f, openRouterKey: e.target.value }))}
-                    placeholder="sk-or-v1-…"
-                    autoComplete="off"
-                  />
-                </div>
+                <Input
+                  name="openRouterKey"
+                  type="password"
+                  label={
+                    snapshot.credentialEnv.openRouter
+                      ? "OpenRouter API key (already set — leave blank to keep)"
+                      : "OpenRouter API key"
+                  }
+                  value={credForm.openRouterKey}
+                  onChange={(e) =>
+                    setCredForm((f) => ({ ...f, openRouterKey: e.target.value }))
+                  }
+                  placeholder="sk-or-v1-…"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
 
-                <button
+                <Button
                   type="button"
-                  className="text-[11px] text-[#58a6ff] hover:underline self-start"
+                  size="xs"
+                  variant="ghost"
                   onClick={() => setShowOptional((v) => !v)}
                 >
                   {showOptional ? "Hide" : "Show"} optional credentials (GitHub, GitLab, Jira)
-                </button>
+                </Button>
 
                 {showOptional && (
-                  <div className="flex flex-col gap-2.5 pl-2 border-l-2 border-[var(--border-color)]">
-                    <div>
-                      <label className="block text-xs text-[var(--fg2)] mb-1">GitHub PAT (optional)</label>
-                      <input
-                        className={inputClass}
-                        type="password"
-                        value={credForm.githubToken}
-                        onChange={(e) => setCredForm((f) => ({ ...f, githubToken: e.target.value }))}
-                        placeholder="ghp_…"
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 12,
+                      paddingLeft: 12,
+                      borderLeft: "2px solid var(--hairline)",
+                    }}
+                  >
+                    <Input
+                      name="githubToken"
+                      type="password"
+                      label="GitHub PAT (optional)"
+                      value={credForm.githubToken}
+                      onChange={(e) =>
+                        setCredForm((f) => ({ ...f, githubToken: e.target.value }))
+                      }
+                      placeholder="ghp_…"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    <div className="grid grid-cols-2" style={{ gap: 10 }}>
+                      <Input
+                        name="gitlabBaseUrl"
+                        label="GitLab base URL"
+                        value={credForm.gitlabBaseUrl}
+                        onChange={(e) =>
+                          setCredForm((f) => ({ ...f, gitlabBaseUrl: e.target.value }))
+                        }
+                        placeholder="https://gitlab.com"
                         autoComplete="off"
                       />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-xs text-[var(--fg2)] mb-1">GitLab base URL</label>
-                        <input
-                          className={inputClass}
-                          value={credForm.gitlabBaseUrl}
-                          onChange={(e) => setCredForm((f) => ({ ...f, gitlabBaseUrl: e.target.value }))}
-                          placeholder="https://gitlab.com"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-[var(--fg2)] mb-1">GitLab token</label>
-                        <input
-                          className={inputClass}
-                          type="password"
-                          value={credForm.gitlabToken}
-                          onChange={(e) => setCredForm((f) => ({ ...f, gitlabToken: e.target.value }))}
-                          placeholder="glpat-…"
-                          autoComplete="off"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs text-[var(--fg2)] mb-1">Jira base URL</label>
-                      <input
-                        className={inputClass}
-                        value={credForm.jiraBaseUrl}
-                        onChange={(e) => setCredForm((f) => ({ ...f, jiraBaseUrl: e.target.value }))}
-                        placeholder="https://yourco.atlassian.net"
+                      <Input
+                        name="gitlabToken"
+                        type="password"
+                        label="GitLab token"
+                        value={credForm.gitlabToken}
+                        onChange={(e) =>
+                          setCredForm((f) => ({ ...f, gitlabToken: e.target.value }))
+                        }
+                        placeholder="glpat-…"
+                        autoComplete="off"
+                        spellCheck={false}
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-xs text-[var(--fg2)] mb-1">Jira email</label>
-                        <input
-                          className={inputClass}
-                          value={credForm.jiraEmail}
-                          onChange={(e) => setCredForm((f) => ({ ...f, jiraEmail: e.target.value }))}
-                          placeholder="you@yourco.com"
-                          autoComplete="off"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-[var(--fg2)] mb-1">Jira API token</label>
-                        <input
-                          className={inputClass}
-                          type="password"
-                          value={credForm.jiraApiToken}
-                          onChange={(e) => setCredForm((f) => ({ ...f, jiraApiToken: e.target.value }))}
-                          autoComplete="off"
-                        />
-                      </div>
+                    <Input
+                      name="jiraBaseUrl"
+                      label="Jira base URL"
+                      value={credForm.jiraBaseUrl}
+                      onChange={(e) =>
+                        setCredForm((f) => ({ ...f, jiraBaseUrl: e.target.value }))
+                      }
+                      placeholder="https://yourco.atlassian.net"
+                      autoComplete="off"
+                    />
+                    <div className="grid grid-cols-2" style={{ gap: 10 }}>
+                      <Input
+                        name="jiraEmail"
+                        type="email"
+                        label="Jira email"
+                        value={credForm.jiraEmail}
+                        onChange={(e) =>
+                          setCredForm((f) => ({ ...f, jiraEmail: e.target.value }))
+                        }
+                        placeholder="you@yourco.com"
+                        autoComplete="email"
+                      />
+                      <Input
+                        name="jiraApiToken"
+                        type="password"
+                        label="Jira API token"
+                        value={credForm.jiraApiToken}
+                        onChange={(e) =>
+                          setCredForm((f) => ({ ...f, jiraApiToken: e.target.value }))
+                        }
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
                     </div>
                   </div>
                 )}
 
-                <div className="flex gap-2 mt-2">
-                  <button type="submit" className="btn-default" disabled={submitting}>
-                    {submitting ? "Saving…" : "Save Credentials"}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-primary ml-auto"
-                    disabled={!snapshot.credentialEnv.openRouter}
-                    title={snapshot.credentialEnv.openRouter ? "" : "Save an OpenRouter key first"}
-                    onClick={async () => {
-                      const repoList = await fetchRepositories();
-                      setRepos(repoList);
-                      if (repoList.length > 0) {
-                        setRuleForm((prev) => ({ ...prev, repositoryId: repoList[0].id }));
-                      }
-                      setCurrentStep("repository");
-                    }}
+                <div
+                  className="flex"
+                  style={{ gap: 8, marginTop: 4, alignItems: "center" }}
+                >
+                  <Button
+                    type="submit"
+                    variant="secondary"
+                    disabled={submitting}
+                    isLoading={submitting}
                   >
-                    Continue
-                  </button>
+                    {submitting ? "Saving" : "Save Credentials"}
+                  </Button>
+                  <span style={{ marginLeft: "auto" }}>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      disabled={!snapshot.credentialEnv.openRouter}
+                      title={
+                        snapshot.credentialEnv.openRouter
+                          ? ""
+                          : "Save an OpenRouter key first"
+                      }
+                      onClick={async () => {
+                        const repoList = await fetchRepositories();
+                        setRepos(repoList);
+                        if (repoList.length > 0) {
+                          setRuleForm((prev) => ({ ...prev, repositoryId: repoList[0].id }));
+                        }
+                        setCurrentStep("repository");
+                      }}
+                    >
+                      Continue
+                    </Button>
+                  </span>
                 </div>
               </form>
             </div>
           )}
 
-          {/* Step 2: Add repository */}
+          {/* Step 2: Repository */}
           {currentStep === "repository" && (
             <div>
-              <h3 className="text-sm font-semibold mb-3">Add Your First Repository</h3>
-              <form onSubmit={(e) => { e.preventDefault(); handleRepoSubmit(); }} className="flex flex-col gap-3">
-                <div>
-                  <label className="block text-xs text-[var(--fg2)] mb-1">Name</label>
-                  <input className={inputClass} value={repoForm.name} onChange={(e) => setRepoForm((f) => ({ ...f, name: e.target.value }))} required />
-                </div>
-                <div>
-                  <label className="block text-xs text-[var(--fg2)] mb-1">Remote URL</label>
-                  <input
-                    className={inputClass}
-                    value={repoForm.remoteUrl}
-                    onChange={(e) => {
-                      const url = e.target.value;
-                      const detected = url.includes("github.com") ? "github" : "gitlab";
-                      setRepoForm((f) => ({ ...f, remoteUrl: url, gitProvider: detected }));
-                    }}
-                    placeholder="git@gitlab.com:org/repo.git"
-                    required
+              <StepHeading>Add Your First Repository</StepHeading>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleRepoSubmit();
+                }}
+                style={{ display: "flex", flexDirection: "column", gap: 12 }}
+              >
+                <Input
+                  name="name"
+                  label="Name"
+                  value={repoForm.name}
+                  onChange={(e) =>
+                    setRepoForm((f) => ({ ...f, name: e.target.value }))
+                  }
+                  required
+                  autoComplete="off"
+                />
+                <Input
+                  name="remoteUrl"
+                  label="Remote URL"
+                  value={repoForm.remoteUrl}
+                  onChange={(e) => {
+                    const url = e.target.value;
+                    const detected = url.includes("github.com") ? "github" : "gitlab";
+                    setRepoForm((f) => ({
+                      ...f,
+                      remoteUrl: url,
+                      gitProvider: detected,
+                    }));
+                  }}
+                  placeholder="git@gitlab.com:org/repo.git"
+                  required
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <Input
+                  name="localMirrorPath"
+                  label="Local Mirror Path"
+                  value={repoForm.localMirrorPath}
+                  onChange={(e) =>
+                    setRepoForm((f) => ({ ...f, localMirrorPath: e.target.value }))
+                  }
+                  placeholder="/path/to/repo"
+                  required
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <div className="grid grid-cols-2" style={{ gap: 12 }}>
+                  <Input
+                    name="defaultBranch"
+                    label="Default Branch"
+                    value={repoForm.defaultBranch}
+                    onChange={(e) =>
+                      setRepoForm((f) => ({ ...f, defaultBranch: e.target.value }))
+                    }
+                    autoComplete="off"
                   />
-                </div>
-                <div>
-                  <label className="block text-xs text-[var(--fg2)] mb-1">Local Mirror Path</label>
-                  <input className={inputClass} value={repoForm.localMirrorPath} onChange={(e) => setRepoForm((f) => ({ ...f, localMirrorPath: e.target.value }))} placeholder="/path/to/repo" required />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs text-[var(--fg2)] mb-1">Default Branch</label>
-                    <input className={inputClass} value={repoForm.defaultBranch} onChange={(e) => setRepoForm((f) => ({ ...f, defaultBranch: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-[var(--fg2)] mb-1">Git Provider</label>
-                    <select className={inputClass} value={repoForm.gitProvider} onChange={(e) => setRepoForm((f) => ({ ...f, gitProvider: e.target.value }))}>
+                  <FieldGroup label="Git Provider">
+                    <select
+                      name="gitProvider"
+                      value={repoForm.gitProvider}
+                      onChange={(e) =>
+                        setRepoForm((f) => ({ ...f, gitProvider: e.target.value }))
+                      }
+                      style={selectStyle}
+                    >
                       <option value="gitlab">GitLab</option>
                       <option value="github">GitHub</option>
                     </select>
-                  </div>
+                  </FieldGroup>
                 </div>
                 {repoForm.gitProvider === "gitlab" && (
-                  <div>
-                    <label className="block text-xs text-[var(--fg2)] mb-1">GitLab Project ID (optional)</label>
-                    <input className={inputClass} value={repoForm.gitlabProjectId} onChange={(e) => setRepoForm((f) => ({ ...f, gitlabProjectId: e.target.value }))} />
-                  </div>
+                  <Input
+                    name="gitlabProjectId"
+                    label="GitLab Project ID (optional)"
+                    value={repoForm.gitlabProjectId}
+                    onChange={(e) =>
+                      setRepoForm((f) => ({ ...f, gitlabProjectId: e.target.value }))
+                    }
+                    autoComplete="off"
+                  />
                 )}
-                <div className="flex gap-2 mt-1">
-                  <button type="submit" className="btn-primary" disabled={submitting}>{submitting ? "Adding..." : "Add Repository"}</button>
-                  <button type="button" className="btn-default" onClick={() => setCurrentStep("credentials")}>Back</button>
+                <div className="flex" style={{ gap: 8, marginTop: 4 }}>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    disabled={submitting}
+                    isLoading={submitting}
+                  >
+                    {submitting ? "Adding" : "Add Repository"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setCurrentStep("credentials")}
+                  >
+                    Back
+                  </Button>
                 </div>
               </form>
             </div>
           )}
 
-          {/* Step 3: Add rule */}
+          {/* Step 3: Rule */}
           {currentStep === "rule" && (
             <div>
-              <h3 className="text-sm font-semibold mb-3">Add a Routing Rule</h3>
-              <p className="text-xs text-[var(--fg2)] mb-3">Route Jira tickets to a repository.</p>
-              <form onSubmit={(e) => { e.preventDefault(); handleRuleSubmit(); }} className="flex flex-col gap-3">
-                <div>
-                  <label className="block text-xs text-[var(--fg2)] mb-1">Rule Name</label>
-                  <input className={inputClass} value={ruleForm.name} onChange={(e) => setRuleForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. project-bugs" required />
-                </div>
-                <div>
-                  <label className="block text-xs text-[var(--fg2)] mb-1">Repository</label>
-                  <select className={inputClass} value={ruleForm.repositoryId} onChange={(e) => setRuleForm((f) => ({ ...f, repositoryId: e.target.value }))} required>
-                    <option value="">Select...</option>
-                    {repos.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              <StepHeading>Add a Routing Rule</StepHeading>
+              <p
+                style={{
+                  fontSize: "var(--text-body-sm)",
+                  color: "var(--c-fog-300)",
+                  marginBottom: 12,
+                }}
+              >
+                Route Jira tickets to a repository.
+              </p>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleRuleSubmit();
+                }}
+                style={{ display: "flex", flexDirection: "column", gap: 12 }}
+              >
+                <Input
+                  name="name"
+                  label="Rule Name"
+                  value={ruleForm.name}
+                  onChange={(e) =>
+                    setRuleForm((f) => ({ ...f, name: e.target.value }))
+                  }
+                  placeholder="e.g. project-bugs"
+                  required
+                  autoComplete="off"
+                />
+                <FieldGroup label="Repository">
+                  <select
+                    name="repositoryId"
+                    value={ruleForm.repositoryId}
+                    onChange={(e) =>
+                      setRuleForm((f) => ({ ...f, repositoryId: e.target.value }))
+                    }
+                    required
+                    style={selectStyle}
+                  >
+                    <option value="">Select…</option>
+                    {repos.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
                   </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-[var(--fg2)] mb-1">Jira Project Key (optional)</label>
-                  <input className={inputClass} value={ruleForm.jiraProjectKey} onChange={(e) => setRuleForm((f) => ({ ...f, jiraProjectKey: e.target.value }))} placeholder="PROJ" />
-                </div>
-                <div className="flex gap-2 mt-1">
-                  <button type="submit" className="btn-primary" disabled={submitting}>{submitting ? "Adding..." : "Add Rule"}</button>
-                  <button type="button" className="btn-default" onClick={() => setCurrentStep("repository")}>Back</button>
-                  <button type="button" className="text-xs text-[var(--fg3)] hover:text-[var(--fg2)] ml-auto" onClick={() => setCurrentStep("run")}>Skip</button>
+                </FieldGroup>
+                <Input
+                  name="jiraProjectKey"
+                  label="Jira Project Key (optional)"
+                  value={ruleForm.jiraProjectKey}
+                  onChange={(e) =>
+                    setRuleForm((f) => ({ ...f, jiraProjectKey: e.target.value }))
+                  }
+                  placeholder="PROJ"
+                  autoComplete="off"
+                />
+                <div className="flex items-center" style={{ gap: 8, marginTop: 4 }}>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    disabled={submitting}
+                    isLoading={submitting}
+                  >
+                    {submitting ? "Adding" : "Add Rule"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setCurrentStep("repository")}
+                  >
+                    Back
+                  </Button>
+                  <span style={{ marginLeft: "auto" }}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setCurrentStep("run")}
+                    >
+                      Skip
+                    </Button>
+                  </span>
                 </div>
               </form>
             </div>
           )}
 
-          {/* Step 4: Trigger test run */}
+          {/* Step 4: Test run */}
           {currentStep === "run" && (
             <div>
-              <h3 className="text-sm font-semibold mb-3">Trigger a Test Run</h3>
-              <p className="text-xs text-[var(--fg2)] mb-3">Enter a Jira ticket key to test the pipeline end-to-end.</p>
-              <form onSubmit={(e) => { e.preventDefault(); handleRunSubmit(); }} className="flex flex-col gap-3">
-                <div>
-                  <label className="block text-xs text-[var(--fg2)] mb-1">Jira Ticket Key</label>
-                  <input className={inputClass} value={ticketKey} onChange={(e) => setTicketKey(e.target.value)} placeholder="PROJ-123" required />
-                </div>
-                <div className="flex gap-2 mt-1">
-                  <button type="submit" className="btn-primary" disabled={submitting}>{submitting ? "Triggering..." : "Trigger Run"}</button>
-                  <button type="button" className="btn-default" onClick={() => setCurrentStep("rule")}>Back</button>
-                  <button type="button" className="text-xs text-[var(--fg3)] hover:text-[var(--fg2)] ml-auto" onClick={onComplete}>Skip & go to dashboard</button>
+              <StepHeading>Trigger a Test Run</StepHeading>
+              <p
+                style={{
+                  fontSize: "var(--text-body-sm)",
+                  color: "var(--c-fog-300)",
+                  marginBottom: 12,
+                }}
+              >
+                Enter a Jira ticket key to test the pipeline end-to-end.
+              </p>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleRunSubmit();
+                }}
+                style={{ display: "flex", flexDirection: "column", gap: 12 }}
+              >
+                <Input
+                  name="ticketKey"
+                  label="Jira Ticket Key"
+                  value={ticketKey}
+                  onChange={(e) => setTicketKey(e.target.value)}
+                  placeholder="PROJ-123"
+                  required
+                  autoComplete="off"
+                  spellCheck={false}
+                  autoCapitalize="characters"
+                />
+                <div className="flex items-center" style={{ gap: 8, marginTop: 4 }}>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    disabled={submitting}
+                    isLoading={submitting}
+                  >
+                    {submitting ? "Triggering" : "Trigger Run"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setCurrentStep("rule")}
+                  >
+                    Back
+                  </Button>
+                  <span style={{ marginLeft: "auto" }}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={onComplete}
+                    >
+                      Skip & go to dashboard
+                    </Button>
+                  </span>
                 </div>
               </form>
             </div>
           )}
-        </div>
+        </Card>
       </div>
+    </div>
+  );
+}
+
+function StepHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <h3
+      style={{
+        fontFamily: "var(--font-display)",
+        fontSize: "var(--text-heading-lg)",
+        fontWeight: 700,
+        color: "var(--c-bone)",
+        marginBottom: 12,
+      }}
+    >
+      {children}
+    </h3>
+  );
+}
+
+function FieldGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label
+        style={{
+          display: "block",
+          fontSize: "var(--text-label-md)",
+          fontWeight: 600,
+          color: "var(--c-fog-300)",
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function Stepper({
+  steps,
+  stepIndex,
+}: {
+  steps: typeof STEPS;
+  stepIndex: number;
+}) {
+  return (
+    <div
+      role="list"
+      aria-label="Setup progress"
+      className="flex items-center justify-center"
+      style={{ gap: 6, flexWrap: "wrap" }}
+    >
+      {steps.map((step, i) => {
+        const isActive = i === stepIndex;
+        const isDone = i < stepIndex;
+        const bg = isDone
+          ? "var(--c-success-bg)"
+          : isActive
+          ? "var(--c-blue-950)"
+          : "var(--surface-2)";
+        const fg = isDone
+          ? "var(--c-success-fg)"
+          : isActive
+          ? "var(--c-blue-200)"
+          : "var(--c-steel-300)";
+        return (
+          <div
+            key={step.key}
+            role="listitem"
+            aria-current={isActive ? "step" : undefined}
+            className="flex items-center"
+            style={{ gap: 6 }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: "50%",
+                background: bg,
+                color: fg,
+                fontFamily: "var(--font-display)",
+                fontWeight: 700,
+                fontSize: 13,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                transition:
+                  "background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out)",
+              }}
+            >
+              {isDone ? <Check size={14} strokeWidth={2.5} /> : step.number}
+            </span>
+            <span
+              style={{
+                fontSize: 10,
+                fontFamily: "var(--font-mono)",
+                fontWeight: 600,
+                letterSpacing: "0.05em",
+                textTransform: "uppercase",
+                color: isActive ? "var(--c-fog-100)" : "var(--c-steel-300)",
+              }}
+            >
+              {step.label}
+            </span>
+            {i < steps.length - 1 && (
+              <div
+                aria-hidden="true"
+                style={{
+                  width: 24,
+                  height: 1,
+                  margin: "0 4px",
+                  background: isDone
+                    ? "var(--c-success-fg)"
+                    : "var(--hairline)",
+                }}
+              />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
