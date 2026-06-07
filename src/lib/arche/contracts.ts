@@ -12,7 +12,6 @@ const remoteUrlSchema = z
       if (trimmed.length === 0) return false;
       // HTTP/HTTPS/SSH URLs that the URL constructor parses.
       try {
-        // eslint-disable-next-line no-new
         new URL(trimmed);
         return true;
       } catch {

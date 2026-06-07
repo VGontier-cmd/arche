@@ -19,7 +19,7 @@ import { assertIssueEligible } from "../policy";
 import { resolveExecutionProfile } from "../profiles";
 import { resolveRepositoryForIssue } from "../repository-resolver";
 import { resolveRepoExtraTools, resolveRepoInstructions } from "./repositories";
-import { scoreComplexity, resolveProfileByComplexity } from "../complexity";
+import { scoreComplexity } from "../complexity";
 import {
   buildExecutorPrompt,
   buildPlannerPrompt,

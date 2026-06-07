@@ -7,7 +7,6 @@ import { z } from "zod";
 
 import type { OpenResponsesResult } from "@openrouter/sdk/models";
 import {
-  ConnectionError,
   OpenRouterError,
   RequestTimeoutError,
 } from "@openrouter/sdk/models/errors";

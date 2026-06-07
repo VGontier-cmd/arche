@@ -20,8 +20,6 @@ import {
 import { inferProvider, inferRepoName } from "../lib/git-utils";
 import {
   applyEnvToProcess,
-  databaseUrlForRuntimeRoot,
-  defaultInstallEnvValues,
   mergeInitOrchestratorConfig,
   preserveUnmanagedEnvValues,
   readEnvFile,
@@ -200,8 +198,6 @@ async function runQuickInit(provider: "github" | "gitlab") {
 
   // ── Provider token ───────────────────────────────────────────────────────
   const providerLabel = provider === "github" ? "GitHub" : "GitLab";
-  const providerEnvKey =
-    provider === "github" ? "USER_GITHUB_TOKEN" : "USER_GITLAB_TOKEN";
   p.note(
     provider === "github"
       ? "Needed to clone, push, and open pull requests.\nCreate a PAT with repo scope at https://github.com/settings/tokens"

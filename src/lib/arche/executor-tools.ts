@@ -13,7 +13,7 @@ import { GitManager } from "./git";
 import { redactText, truncateText } from "./logging";
 import type { OpenRouterSdkProvider } from "./provider";
 import { SandboxManager } from "./sandbox";
-import type { ReviewFinding, ExecutorRoleOutput } from "./types";
+import type { ExecutorRoleOutput } from "./types";
 import { isArgvAllowed, parseCommand } from "./utils";
 import type { WorkflowHooks } from "./run-workflow";
 

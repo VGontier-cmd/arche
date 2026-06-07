@@ -12,7 +12,6 @@ import { createExecutorTools, extractHumanInputCall } from "./executor-tools";
 import { GitManager } from "./git";
 import {
   OpenRouterSdkProvider,
-  aggregateUsage,
   extractLastThinking,
   type ProviderAttempt,
   type ProviderMessage,
@@ -23,7 +22,6 @@ import { fetchOpenRouterModels, type OpenRouterModel } from "./openrouter-proxy"
 import {
   plannerRoleOutputSchema,
   plannerSchemaHint,
-  researcherRoleOutputSchema,
   researcherSchemaHint,
   reviewerRoleOutputSchema,
   reviewerSchemaHint,

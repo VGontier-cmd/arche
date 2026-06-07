@@ -1,3 +1,5 @@
+import { EventEmitter } from "node:events";
+
 import type { Command } from "commander";
 
 import { printJson } from "../lib/cli-helpers";
@@ -78,7 +80,7 @@ export function register(program: Command) {
       };
 
       await new Promise<void>((resolve) => {
-        const eventSource = new (require("node:events").EventEmitter)();
+        const eventSource = new EventEmitter();
 
         const handleActivity = async () => {
           const current = await pollStatus().catch(() => null);
