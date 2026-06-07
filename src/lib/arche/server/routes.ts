@@ -773,9 +773,9 @@ export function registerServerRoutes(app: FastifyInstance) {
     const body = setupCredentialsSchema.parse(request.body ?? {});
     const envPath = resolveArcheProjectEnvPath();
     await updateCredentialsInEnvFile(envPath, body);
-    logger.info("setup.credentials_updated", "credentials updated via dashboard", {
-      envPath,
-      fields: Object.keys(body),
+    logger.info("api", "credentials updated via dashboard", {
+      event: "setup.credentials_updated",
+      details: { envPath, fields: Object.keys(body) },
     });
     const config = await getConfig();
     return {
