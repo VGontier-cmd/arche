@@ -258,9 +258,19 @@ async function parseProviderRequest(input: string | URL | Request, init?: Reques
   };
 }
 
-function roleFromModel(modelName: string) {
-  if (modelName === "test-planner-model") return "planner";
-  if (modelName === "test-executor-model") return "executor";
+function extractUserText(request: { input?: string | Array<Record<string, unknown>> }) {
+  if (typeof request.input === "string") return request.input;
+  if (Array.isArray(request.input)) {
+    return (request.input.find((m) => m.role === "user")?.content as string | undefined) ?? "";
+  }
+  return "";
+}
+
+function roleFromRequest(request: { model: string; input?: string | Array<Record<string, unknown>> }) {
+  if (request.model === "test-planner-model") {
+    return extractUserText(request).includes("researcher role for Arche") ? "researcher" : "planner";
+  }
+  if (request.model === "test-executor-model") return "executor";
   return "reviewer";
 }
 
@@ -409,7 +419,22 @@ describe("workflow orchestration", () => {
 
       if (url === "https://llm.example.com/v1/responses") {
         const request = await parseProviderRequest(input, init);
-        const role = roleFromModel(request.model);
+        const role = roleFromRequest(request);
+
+        if (role === "researcher") {
+          // Researcher is a pre-planner phase; the assertions below track only
+          // planner / executor / reviewer invocations, so we don't record it.
+          return providerResponse(
+            JSON.stringify({
+              summary: "Popup component lives in src/components/Popup.tsx and is rendered on the landing page.",
+              relevantFiles: ["src/components/Popup.tsx"],
+              architectureNotes: "React function components with co-located styles.",
+              externalDeps: [],
+              potentialRisks: ["Popup placement may regress on smaller breakpoints."],
+            }),
+          );
+        }
+
         const cycle = cycleFromRequest(role, request);
         state.providerInvocations.push({ role, cycle, modelName: request.model });
 
